@@ -35,4 +35,4 @@ wf = Couple_Preproc_Pipeline(base_dir=base_dir, output_dir=output_dir, subject_i
 wf.write_graph(dotfilename=os.path.join(output_dir,'Workflow_Pipeline.dot'),format='png')
 wf.run()
 ```
-![pipeline](https://github.com/cosanlab/cosanlab_preproc/img/Workflow_Pipeline.dot.png)
+![pipeline](https://github.com/cosanlab/cosanlab_preproc/blob/master/img/Workflow_Pipeline.dot.png)
