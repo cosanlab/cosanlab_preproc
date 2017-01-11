@@ -8,7 +8,7 @@ from __future__ import division
 
 '''
 
-__all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters', 'Create_Covariates']
+__all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters', 'Create_Covariates', 'Build_Xmat']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
