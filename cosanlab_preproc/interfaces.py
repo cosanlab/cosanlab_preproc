@@ -110,8 +110,8 @@ class Plot_Quality_Control(BaseInterface):
 		#Apply mask first to deal with 0 sd for computing tsnr
 		mask = compute_epi_mask(dat_img)
 		masked_data = apply_mask(dat_img, mask)
-		global_mn = np.mean(masked_data,axis=1)
-		global_sd = np.std(masked_data,axis=1)
+		global_mn = np.mean(masked_data,axis=0)
+		global_sd = np.std(masked_data,axis=0)
 		global_tsnr = np.divide(global_mn,global_sd)
 		mn = unmask(global_mn, mask)
 		sd = unmask(global_sd, mask)
@@ -292,6 +292,7 @@ class Build_Xmat_InputSpec(TraitedSpec):
 	onsetsFile = File(exists=True, mandatory=True) 
 	covFile = File(exists=True, mandatory=True)
 	TR = traits.Float(desc='TR length',mandatory=True)
+	dur = traits.Float(desc='stimulus duration in s',mandatory=True)
 	header = traits.Bool(desc='whether onsets file has a header or not',default=True)
 	delim = traits.String(desc='delimiter used in onsets file',default=',')
 	fillNa = traits.Bool(desc='Fill nans with 0',default=True)
@@ -314,13 +315,14 @@ class Build_Xmat(BaseInterface):
 		covFile = self.inputs.covFile
 		onsetsFile =  self.inputs.onsertsFile
 		TR = float(self.inputs.TR)
+		dur = float(self.inputs.dur)
 		fillNa = self.inputs.fillNa
 		header = self.inputs.header
 		if not self.inputs.header:
 			header = None
 		else:
 			header = 0
-		delim = self.inputs.delim
+		delim = self.inputs.delimx
 
 		hrf = glover_hrf(tr = TR,oversampling=1)
 
@@ -380,7 +382,8 @@ class Build_Xmat(BaseInterface):
 		#Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
 		X = pd.DataFrame(columns=O.Stim.unique(),data=np.zeros([C.shape[0],len(O.Stim.unique())]))
 		for i, row in O.iterrows():
-		    X.ix[row['Onset']-1,row['Stim']] = 1
+			#do dur-1 for slicing because .ix includes the last element of the slice
+		    X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,row['Stim']] = 1
 		X = X.reindex_axis(sorted(X.columns), axis=1)
 
 		#Convolve with hrf, concat with covs
