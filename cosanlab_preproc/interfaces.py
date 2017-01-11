@@ -292,6 +292,8 @@ class Build_Xmat_InputSpec(TraitedSpec):
 	onsetsFile = File(exists=True, mandatory=True) 
 	covFile = File(exists=True, mandatory=True)
 	TR = traits.Float(desc='TR length',mandatory=True)
+	header = traits.Bool(desc='whether onsets file has a header or not',default=True)
+	delim = traits.String(desc='delimiter used in onsets file',default=',')
 	fillNa = traits.Bool(desc='Fill nans with 0',default=True)
 
 class Build_Xmat_OutputSpec(TraitedSpec):
@@ -311,13 +313,19 @@ class Build_Xmat(BaseInterface):
 		
 		covFile = self.inputs.covFile
 		onsetsFile =  self.inputs.onsertsFile
-		TR = self.inputs.TR
+		TR = float(self.inputs.TR)
 		fillNa = self.inputs.fillNa
+		header = self.inputs.header
+		if not self.inputs.header:
+			header = None
+		else:
+			header = 0
+		delim = self.inputs.delim
 
 		hrf = glover_hrf(tr = TR,oversampling=1)
 
 		#Check if we're dealing with multiple files that need to be concat
-		#assert type(covFile) == type(onsetsFile), "Covariates and onsets must both be a single a file or list of files!"
+		assert type(covFile) == type(onsetsFile), "Covariates and onsets must both be a single a file or list of files!"
 	            
 		#COVARIATES
 
@@ -344,7 +352,12 @@ class Build_Xmat(BaseInterface):
 		    #Load onsets, convert to TRs, get unique stimNames
 		    onsets = []
 		    for i, f in enumerate(onsetsFile):
-		        F = pd.read_csv(f)
+		        F = pd.read_csv(f,header=header,delimiter=delim)
+		        if header is None:
+		        	if isinstance(F.iloc[0,0],str):
+		        		F.columns = ['Stim','Onset']
+		        	else:
+		        		F.columns = ['Onset','Stim']
 		        F['Onset'] = F['Onset'].apply(lambda x: int(np.floor(x/TR)))
 		        F['Onset'] += numTrs*i
 		        onsets.append(F)     
@@ -354,13 +367,15 @@ class Build_Xmat(BaseInterface):
 		    #Just a single file 
 		    C = pd.read_csv(covFile)
 		    C['intercept'] = 1  
-		    O = pd.read_csv(onsetsFile)
+		    O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
+		    if header is None:
+	        	if isinstance(O.iloc[0,0],str):
+	        		O.columns = ['Stim','Onset']
+	        	else:
+	        		O.columns = ['Onset','Stim']
 		    O['Onset'] = O['Onset'].apply(lambda x: int(np.floor(x/TR)))
 		    numRuns = 1
     
-		#Convert onsets to TRs and get unique stim names
-		O['Stim'] = O['Stim'].apply(lambda x: x[0:len(x)-6])
-
 		#Build dummy codes
 		#Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
 		X = pd.DataFrame(columns=O.Stim.unique(),data=np.zeros([C.shape[0],len(O.Stim.unique())]))
