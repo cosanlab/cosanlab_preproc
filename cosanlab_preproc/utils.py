@@ -5,9 +5,7 @@ __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
 from os.path import dirname, join, pardir, sep as pathsep
-import pandas as pd
 import nibabel as nib
-import importlib
 import os
 
 def get_resource_path():

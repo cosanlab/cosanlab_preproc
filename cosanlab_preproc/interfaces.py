@@ -1,14 +1,14 @@
 from __future__ import division
 
 '''
-    nltools Nipype Interfaces
+    Preproc Nipype Interfaces
     =========================
     
     Classes for various nipype interfaces
 
 '''
 
-__all__ = ['Plot_Coregistration_Montage', 'PlotRealignmentParameters', 'Create_Covariates']
+__all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters', 'Create_Covariates']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -103,23 +103,32 @@ class Plot_Quality_Control(BaseInterface):
 		import pylab as plt
 		import numpy as np
 		import nibabel as nib
-		from nilearn.masking import compute_epi_mask, apply_mask
+		from nilearn.masking import compute_epi_mask, apply_mask, unmask
 		from nilearn.plotting import plot_stat_map
 
 		dat_img = nib.load(self.inputs.dat_img)
-		mn = nib.Nifti1Image(np.mean(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
-		sd = nib.Nifti1Image(np.std(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
-		snr = nib.Nifti1Image(mn.get_data()/sd.get_data(),affine=dat_img.get_affine())
+		#Apply mask first to deal with 0 sd for computing tsnr
 		mask = compute_epi_mask(dat_img)
 		masked_data = apply_mask(dat_img, mask)
 		global_mn = np.mean(masked_data,axis=1)
 		global_sd = np.std(masked_data,axis=1)
+		global_tsnr = np.divide(global_mn,global_sd)
+		mn = unmask(global_mn, mask)
+		sd = unmask(global_sd, mask)
+		snr = unmask(global_tsnr, mask)
+
+
 		global_outlier = np.append(np.where(global_mn>np.mean(global_mn)+np.std(global_mn)*self.inputs.global_outlier_cutoff),
 		                           np.where(global_mn<np.mean(global_mn)-np.std(global_mn)*self.inputs.global_outlier_cutoff))
 		frame_diff = np.mean(np.abs(np.diff(masked_data,axis=0)),axis=1)
 		frame_outlier = np.append(np.where(frame_diff>np.mean(frame_diff)+np.std(frame_diff)*self.inputs.frame_outlier_cutoff),
 		                           np.where(frame_diff<np.mean(frame_diff)-np.std(frame_diff)*self.inputs.frame_outlier_cutoff))
 
+
+		#mn = nib.Nifti1Image(np.mean(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
+		#sd = nib.Nifti1Image(np.std(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
+		#snr = nib.Nifti1Image(mn.get_data()/sd.get_data(),affine=dat_img.get_affine())	
+	
 		title = self.inputs.title
 
 		if title != "":
@@ -129,13 +138,13 @@ class Plot_Quality_Control(BaseInterface):
 
 		f, ax = plt.subplots(6,figsize=(15,15))
 		plot_stat_map(mn, title="Mean",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[0],
-		              draw_cross=False, black_bg='True',annotate=False,)
+		              draw_cross=False, black_bg=True,annotate=False,bg_img=None)
 
 		plot_stat_map(sd, title="Standard Deviation",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[1],
-		              draw_cross=False, black_bg='True',annotate=False,)
+		              draw_cross=False, black_bg=True,annotate=False,bg_img=None)
 
 		plot_stat_map(snr, title="SNR (mn/sd)",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[2],
-		              draw_cross=False, black_bg='True',annotate=False,)
+		              draw_cross=False, black_bg=True,annotate=False,bg_img=None)
 
 		ax[3].plot(global_mn)
 		# ax[3].set_title('Average Signal Intensity')
@@ -169,20 +178,20 @@ class Plot_Quality_Control(BaseInterface):
 		outputs["plot"] = os.path.abspath(self._plot)
 		return outputs
 
-class PlotRealignmentParametersInputSpec(TraitedSpec):
+class Plot_Realignment_Parameters_InputSpec(TraitedSpec):
 	realignment_parameters = File(exists=True, mandatory=True)
 	outlier_files = File(exists=True)
 	title = traits.Str("Realignment parameters", usedefault=True)
 	dpi = traits.Int(300, usedefault = True)
     
-class PlotRealignmentParametersOutputSpec(TraitedSpec):
+class Plot_Realignment_Parameters_OutputSpec(TraitedSpec):
 	plot = File(exists=True)
 
-class PlotRealignmentParameters(BaseInterface):
+class Plot_Realignment_Parameters(BaseInterface):
 	#This function is adapted from Chris Gorgolewski and creates a figure of the realignment parameters
 
-	input_spec = PlotRealignmentParametersInputSpec
-	output_spec = PlotRealignmentParametersOutputSpec
+	input_spec = Plot_Realignment_Parameters_InputSpec
+	output_spec = Plot_Realignment_Parameters_OutputSpec
     
 	def _run_interface(self, runtime):
 		import matplotlib
@@ -279,4 +288,118 @@ class Create_Covariates(BaseInterface):
 		outputs["covariates"] = os.path.abspath(self._covariates)
 		return outputs
 
+class Build_Xmat_InputSpec(TraitedSpec):	
+	onsetsFile = File(exists=True, mandatory=True) 
+	covFile = File(exists=True, mandatory=True)
+	TR = traits.Float(desc='TR length',mandatory=True)
+	fillNa = traits.Bool(desc='Fill nans with 0',default=True)
 
+class Build_Xmat_OutputSpec(TraitedSpec):
+	xmat = File(exists=True)
+
+class Build_Xmat(BaseInterface):
+	input_spec = Build_Xmat_InputSpec
+	output_spec = Build_Xmat_OutputSpec
+
+	def _run_interface(self, runtime):
+		import matplotlib
+		matplotlib.use('Agg')
+		import pandas as pd
+		import numpy as np
+		import seaborn as sns
+		from nipy.modalities.fmri.hemodynamic_models import glover_hrf
+		
+		covFile = self.inputs.covFile
+		onsetsFile =  self.inputs.onsertsFile
+		TR = self.inputs.TR
+		fillNa = self.inputs.fillNa
+
+		hrf = glover_hrf(tr = TR,oversampling=1)
+
+		#Check if we're dealing with multiple files that need to be concat
+		#assert type(covFile) == type(onsetsFile), "Covariates and onsets must both be a single a file or list of files!"
+	            
+		#COVARIATES
+
+		if isinstance(covFile,list):
+	 	    covs = []
+		    for i, f in enumerate(covFile):
+		        F = pd.read_csv(f)
+		        F.columns = [str(i)+'_' + c if 'spike' in c else c for c in F.columns]
+		        covs.append(F)
+		    C = pd.concat(covs,axis=0,ignore_index=True)
+		    
+		    #Create runwise dummy coded regressors
+		    numRuns = len(covs)
+		    numTrs = C.shape[0]/numRuns
+		    runDummies = np.zeros([C.shape[0],len(covs)])
+		    
+		    for runCount in xrange(len(covs)):
+		        runDummies[runCount*numTrs:runCount*numTrs+numTrs,runCount] = 1
+		    runDummies = pd.DataFrame(runDummies,columns = ['run'+str(elem) for elem in xrange(len(covs))])
+		    
+		    C = pd.concat([C,runDummies],axis=1)
+		    
+		    #ONSETS
+		    #Load onsets, convert to TRs, get unique stimNames
+		    onsets = []
+		    for i, f in enumerate(onsetsFile):
+		        F = pd.read_csv(f)
+		        F['Onset'] = F['Onset'].apply(lambda x: int(np.floor(x/TR)))
+		        F['Onset'] += numTrs*i
+		        onsets.append(F)     
+		    O = pd.concat(onsets,axis=0,ignore_index=True)
+    
+		else:
+		    #Just a single file 
+		    C = pd.read_csv(covFile)
+		    C['intercept'] = 1  
+		    O = pd.read_csv(onsetsFile)
+		    O['Onset'] = O['Onset'].apply(lambda x: int(np.floor(x/TR)))
+		    numRuns = 1
+    
+		#Convert onsets to TRs and get unique stim names
+		O['Stim'] = O['Stim'].apply(lambda x: x[0:len(x)-6])
+
+		#Build dummy codes
+		#Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
+		X = pd.DataFrame(columns=O.Stim.unique(),data=np.zeros([C.shape[0],len(O.Stim.unique())]))
+		for i, row in O.iterrows():
+		    X.ix[row['Onset']-1,row['Stim']] = 1
+		X = X.reindex_axis(sorted(X.columns), axis=1)
+
+		#Convolve with hrf, concat with covs
+		for i in xrange(X.shape[1]):
+		    X.iloc[:,i] = np.convolve(hrf,X.iloc[:,i])[:X.shape[0]]
+		X = pd.concat([X,C],axis=1)
+
+		if fillNa:
+			X = X.fillna(0)
+
+		matplotlib.rcParams['axes.edgecolor'] = 'black'
+		matplotlib.rcParams['axes.linewidth'] = 2
+		fig, ax = plt.subplots(1,figsize=(12,10))
+		
+		ax = sns.heatmap(X,cmap='gray', cbar=False,ax=ax);
+		
+		for _, spine in ax.spines.items():
+			spine.set_visible(True)
+		for i, label in enumerate(ax.get_yticklabels()):
+			if i > 0 and i < X.shape[0]:
+				label.set_visible(False)
+		
+		fig.savefig('Xmat.png')
+		plt.close(fig)
+		del fig
+
+		filename = 'Xmat.csv'
+		X.to_csv(filename,index=False)
+		self._xmat = filename
+
+		runtime.returncode=0
+		return runtime
+	    
+	def _list_outputs(self):
+		outputs = self._outputs().get()
+		outputs["xmat"] = os.path.abspath(self._xmat)
+		return outputs

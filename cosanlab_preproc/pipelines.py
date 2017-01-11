@@ -1,12 +1,12 @@
 
 '''
-    nltools Nipype Pipelines
+    Preproc Nipype Pipelines
     ========================
     Various nipype pipelines
 
 '''
 
-__all__ = ['create_spm_preproc_func_pipeline','Couple_Preproc_Pipeline']
+__all__ = ['create_spm_preproc_func_pipeline','Couple_Preproc_Pipeline','TV_Preproc_Pipeline']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -23,7 +23,7 @@ import nibabel as nib
 from IPython.display import Image
 import glob
 
-from nltools.utils import get_n_slices, get_ta, get_slice_order, get_vox_dims
+from cosanlab_preproc.utils import get_n_slices, get_ta, get_slice_order, get_vox_dims
 
 def create_spm_preproc_func_pipeline(data_dir=None, subject_id=None, task_list=None):
 
@@ -63,7 +63,7 @@ def create_spm_preproc_func_pipeline(data_dir=None, subject_id=None, task_list=N
 	realign.inputs.register_to_mean = True
 
 	#Plot Realignment
-	plot_realign = Node(interface=PlotRealignmentParameters(), name="plot_realign")
+	plot_realign = Node(interface=Plot_Realignment_Parameters(), name="plot_realign")
 
 	#Artifact Detection
 	art = Node(interface=ra.ArtifactDetect(), name="art")
@@ -166,8 +166,8 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     from nipype.algorithms.misc import Gunzip
     from nipype.interfaces.nipy.preprocess import ComputeMask
     import nipype.interfaces.matlab as mlab
-    from nltools.utils import get_resource_path, get_vox_dims, get_n_volumes
-    from nltools.interfaces import Plot_Coregistration_Montage, PlotRealignmentParameters, Create_Covariates
+    from cosanlab_preproc.utils import get_resource_path, get_vox_dims, get_n_volumes
+    from cosanlab.interfaces import Plot_Coregistration_Montage, Plot_Realignment_Parameters, Create_Covariates
     import os
     import glob
 
@@ -269,7 +269,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     coregister.inputs.jobtype = 'estwrite'
 
     #Plot Realignment
-    plot_realign = Node(interface=PlotRealignmentParameters(), name="plot_realign")
+    plot_realign = Node(interface=Plot_Realignment_Parameters(), name="plot_realign")
 
     #Artifact Detection
     art = Node(interface=ArtifactDetect(), name="art")
@@ -357,7 +357,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
                         (make_cov, datasink, [('covariates', 'functional.@covariates')])])
     return workflow
 
-def TV_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm_path=None):
+def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm_path=None):
     """ Create a preprocessing workflow for the Couples Conflict Study using nipype
 
     Args:
@@ -383,8 +383,8 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm_pat
     from nipype.algorithms.misc import Gunzip
     from nipype.interfaces.nipy.preprocess import ComputeMask
     import nipype.interfaces.matlab as mlab
-    from nltools.utils import get_resource_path, get_vox_dims, get_n_volumes
-    from nltools.interfaces import Plot_Coregistration_Montage, PlotRealignmentParameters, Create_Covariates, Plot_Quality_Control
+    from cosanlab_preproc.utils import get_resource_path, get_vox_dims, get_n_volumes
+    from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Realignment_Parameters, Create_Covariates, Plot_Quality_Control
     import os
     import glob
 
@@ -435,7 +435,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm_pat
     coregister.inputs.jobtype = 'estwrite'
 
     #Plot Realignment
-    plot_realign = Node(interface=PlotRealignmentParameters(), name="plot_realign")
+    plot_realign = Node(interface=Plot_Realignment_Parameters(), name="plot_realign")
 
     #Artifact Detection
     art = Node(interface=ArtifactDetect(), name="art")
@@ -515,4 +515,286 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm_pat
                      ])
     return workflow
 
-   
+def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subject_id=None, volsToTrim = 5, smoothingKernel = 4):
+    
+    """ 
+    Create a nipype preprocessing workflow to analyze data from the TV study.
+    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS 
+    Pre-processing steps include:
+    Trimming extra scans (nipy)
+    Realignment/Motion Correction (fsl)
+    Artifact Detection (nipype)
+    Brain Extraction + Bias Correction (ANTs)
+    Coregistration (rigid) (ANTs)
+    Normalization to MNI 152 2mm (non-linear) (ANTs)
+    Qualitry Control figure generation:
+        - Realignment parameters
+        - Quality check of mean signal, sd and frame differences
+        - Normalization check
+
+    Args: 
+        base_dir: path to raw data folder with subjects listed as sub-folders
+        output_dir: path where final outputted files and figures should go
+        resources_dir: path where template files for MNI and ANTs live
+        subject_id: subject to run (should match folder name)
+
+    Return:
+        workflow: A complete nipepe workflow
+    """
+
+    import os
+    from glob import glob
+    import matplotlib
+    matplotlib.use('Agg')
+    from nipype.interfaces.io import DataSink, DataGrabber
+    from nipype.interfaces.utility import Merge, IdentityInterface
+    from nipype.pipeline.engine import Node, Workflow 
+    from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates
+    from cosanlab_preproc.utils import get_resource_path
+    from nipype.interfaces.nipy.preprocess import Trim, ComputeMask 
+    from nipype.algorithms.rapidart import ArtifactDetect
+    from nipype.interfaces.ants.segmentation import BrainExtraction
+    from nipype.interfaces.ants import Registration, ApplyTransforms
+    from nipype.interfaces.fsl import MCFLIRT
+    from nipype.interfaces.fsl.maths import MeanImage
+    from nipype.interfaces.fsl.utils import Smooth
+
+    ###################################
+    ### GLOBALS, PATHS ###
+    ################################### 
+    MNItemplate = os.path.join(get_resource_path,'MNI152_T1_2mm_brain.nii.gz')
+    MNItemplatehasskull = os.path.join(get_resource_path,'MNI152_T1_2mm.nii.gz')
+    bet_ants_template = os.path.join(get_resource_path,'OASIS_template.nii.gz')
+    bet_ants_prob_mask = os.path.join(get_resource_path,'OASIS_BrainCerebellumProbabilityMask.nii.gz')
+    bet_ants_registration_mask = os.path.join(get_resource_path,'OASIS_BrainCerebellumRegistrationMask.nii.gz')
+    bet_ants_extraction_mask = os.path.join(get_resource_path,'OASIS_BrainCerebellumExtractionMask.nii.gz')
+
+    ###################################
+    ### DATA INPUT ###
+    ################################### 
+    #Create a datagrabber that takes a subid as input and creates func and struct dirs
+    datasource = Node(DataGrabber(
+        infields=['subject_id'],
+        outfields = ['func','struct']),
+        name = 'datasource')
+    datasource.inputs.base_directory = base_dir
+    datasource.inputs.subject_id = subject_id
+    datasource.inputs.template = '*'
+    datasource.inputs.sort_filelist = True
+    datasource.inputs.field_template = {'struct': '%s/T1.nii',
+                                        'func': '%s/*ep*.nii'} 
+    datasource.inputs.template_args = {'struct' :[['subject_id']],
+                                       'func': [['subject_id']]}
+
+    #Then grab all epis using an Identity Interface which is an iterable node
+    func_scans = Node(IdentityInterface(fields=['scan']),name='func_scans')
+    func_scans.inputs.subject_id  = subject_id
+    func_scans.iterables = ('scan', glob(os.path.join(base_dir,subject_id,'*ep*.nii')))
+
+    ###################################
+    ### TRIM ###
+    ###################################
+    trim = Node(Trim(), name = 'trim')
+    trim.inputs.begin_index = volsToTrim
+
+    ###################################
+    ### REALIGN ###
+    ###################################
+    realign_fsl = Node(MCFLIRT(),name="realign")
+    realign_fsl.inputs.cost = 'mutualinfo'
+    realign_fsl.inputs.mean_vol = True
+    realign_fsl.inputs.output_type = 'NIFTI_GZ'
+    realign_fsl.inputs.save_mats = True
+    realign_fsl.inputs.save_rms = True
+    realign_fsl.inputs.save_plots = True
+
+    ###################################
+    ### MEAN EPIs ###
+    ###################################
+    #For coregistration after realignment
+    mean_epi = Node(MeanImage(),name='mean_epi')
+    mean_epi.inputs.dimension = 'T'
+    
+    #For after normalization is done to plot checks 
+    mean_norm_epi = Node(MeanImage(),name='mean_norm_epi')
+    mean_norm_epi.inputs.dimension = 'T'
+
+    ###################################
+    ### MASK, ART, COV CREATION ###
+    ###################################
+    compute_mask = Node(ComputeMask(), name='compute_mask')
+    compute_mask.inputs.m = .05
+
+    art = Node(ArtifactDetect(),name='art')
+    art.inputs.use_differences = [True, False]
+    art.inputs.use_norm = True
+    art.inputs.norm_threshold = 1
+    art.inputs.zintensity_threshold = 3
+    art.inputs.mask_type = 'file'
+    art.inputs.parameter_source = 'FSL'
+
+    make_cov = Node(Create_Covariates(),name='make_cov')
+
+    ###################################
+    ### BRAIN EXTRACTION ###
+    ###################################
+    brain_extraction_ants = Node(BrainExtraction(),name='brain_extraction')
+    brain_extraction_ants.inputs.dimension = 3
+    brain_extraction_ants.inputs.use_floatingpoint_precision = 1
+    brain_extraction_ants.inputs.num_threads = 12
+    brain_extraction_ants.inputs.brain_probability_mask = bet_ants_prob_mask
+    brain_extraction_ants.inputs.brain_template = bet_ants_template
+    brain_extraction_ants.inputs.extraction_registration_mask = bet_ants_registration_mask
+
+    ###################################
+    ### COREGISTRATION ###
+    ################################### 
+    coregistration = Node(Registration(), name='coregistration')
+    coregistration.inputs.float = False
+    coregistration.inputs.output_transform_prefix = "meanEpi2highres"
+    coregistration.inputs.transforms = ['Rigid']
+    coregistration.inputs.transform_parameters = [(0.1,), (0.1,)]
+    coregistration.inputs.number_of_iterations = [[1000,500,250,100]]
+    coregistration.inputs.dimension = 3
+    coregistration.inputs.num_threads = 12
+    coregistration.inputs.write_composite_transform = True
+    coregistration.inputs.collapse_output_transforms = True
+    coregistration.inputs.metric = ['MI']
+    coregistration.inputs.metric_weight = [1]
+    coregistration.inputs.radius_or_number_of_bins = [32]
+    coregistration.inputs.sampling_strategy = ['Regular']
+    coregistration.inputs.sampling_percentage = [0.25]
+    coregistration.inputs.convergence_threshold = [1.e-8]
+    coregistration.inputs.convergence_window_size = [10]
+    coregistration.inputs.smoothing_sigmas = [[3,2,1,0]]
+    coregistration.inputs.sigma_units = ['mm']
+    coregistration.inputs.shrink_factors = [[8,4,2,1]]
+    coregistration.inputs.use_estimate_learning_rate_once = [True]
+    coregistration.inputs.use_histogram_matching = [False] 
+    coregistration.inputs.initial_moving_transform_com = True 
+    coregistration.inputs.output_warped_image = True
+    coregistration.inputs.winsorize_lower_quantile = 0.01 
+    coregistration.inputs.winsorize_upper_quantile = 0.99
+
+    ###################################
+    ### NORMALIZATION ###
+    ################################### 
+    #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
+    normalization = Node(Registration(),name='normalization')
+    normalization.inputs.float = False
+    normalization.inputs.collapse_output_transforms=True
+    normalization.inputs.convergence_threshold=[1e-06]
+    normalization.inputs.convergence_window_size=[10]
+    normalization.inputs.dimension = 3
+    normalization.inputs.fixed_image = MNItemplate #MNI 152 1mm
+    normalization.inputs.initial_moving_transform_com=True
+    normalization.inputs.metric=['MI', 'MI', 'CC']
+    normalization.inputs.metric_weight=[1.0]*3
+    normalization.inputs.number_of_iterations=[[1000, 500, 250, 100],
+                                     [1000, 500, 250, 100],
+                                     [100, 70, 50, 20]]
+    normalization.inputs.num_threads=12
+    normalization.inputs.output_transform_prefix = 'anat2template'
+    normalization.inputs.output_inverse_warped_image=True
+    normalization.inputs.output_warped_image = True
+    normalization.inputs.radius_or_number_of_bins=[32, 32, 4]
+    normalization.inputs.sampling_percentage=[0.25, 0.25, 1]
+    normalization.inputs.sampling_strategy=['Regular',
+                                  'Regular',
+                                  'None']
+    normalization.inputs.shrink_factors=[[8, 4, 2, 1]]*3
+    normalization.inputs.sigma_units=['vox']*3
+    normalization.inputs.smoothing_sigmas=[[3, 2, 1, 0]]*3
+    normalization.inputs.terminal_output='stream'
+    normalization.inputs.transforms = ['Rigid','Affine','SyN']
+    normalization.inputs.transform_parameters=[(0.1,),
+                                     (0.1,),
+                                     (0.1, 3.0, 0.0)]
+    normalization.inputs.use_histogram_matching=True
+    normalization.inputs.winsorize_lower_quantile=0.005
+    normalization.inputs.winsorize_upper_quantile=0.995
+    normalization.inputs.write_composite_transform=True
+    
+    ###################################
+    ### APPLY TRANSFORMS AND SMOOTH ###
+    ###################################
+    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation. 
+
+    merge_transforms = Node(Merge(2), iterfield=['in2'], name ='merge_transforms')
+
+    apply_transforms = Node(ApplyTransforms(),iterfield=['input_image'],name='apply_transforms')
+    apply_transforms.inputs.input_image_type = 3
+    apply_transforms.inputs.float = False
+    apply_transforms.inputs.num_threads = 12
+    apply_transforms.inputs.environ = {}
+    apply_transforms.inputs.interpolation = 'BSpline'
+    apply_transforms.inputs.invert_transform_flags = [False, False]
+    apply_transforms.inputs.terminal_output = 'stream'
+    apply_transforms.inputs.reference_image = MNItemplate
+
+    #Use FSL for smoothing
+    smooth = Node(Smooth(),name='smooth')
+    smooth.inputs.sigma = smoothingKernel
+
+    ###################################
+    ### PLOTS ###
+    ###################################
+
+    plot_realign = Node(Plot_Realignment_Parameters(),name="plot_realign")
+    plot_qa = Node(Plot_Quality_Control(),name="plot_qa")
+    plot_normalization_check = Node(Plot_Coregistration_Montage(),name="plot_normalization_check")
+    plot_normalization_check.inputs.canonical_img = MNItemplatehasskull
+
+    ###################################
+    ### DATA OUTPUT ###
+    ###################################
+    #Collect all final outputs in the output dir and get rid of file name additions
+    datasink = Node(DataSink(),name='datasink')
+    datasink.inputs.base_directory = output_dir
+    datasink.inputs.container = subject_id
+    datasink.inputs.substitutions = [('_scan_..data..fmriData..' + subject_id + '..','')]
+
+
+    ###################################
+    ### HOOK IT ALL CAPTAIN! ###
+    ###################################
+    workflow = Workflow(name='Preprocessing')
+    workflow.base_dir = os.path.join(base_dir,subject_id)
+    
+    workflow.connect([
+        (func_scans, trim, [('scan','in_file')]),
+        (trim, realign_fsl, [('out_file','in_file')]),
+        (realign_fsl, plot_realign, [('par_file','realignment_parameters')]),
+        (realign_fsl, plot_qa, [('out_file','dat_img')]),
+        (realign_fsl, art, [('out_file','realigned_files'),
+                           ('par_file','realignment_parameters')]),
+        (realign_fsl, mean_epi, [('out_file','in_file')]),
+        (realign_fsl, make_cov, [('par_file','realignment_parameters')]),
+        (mean_epi, compute_mask, [('out_file','mean_volume')]),
+        (compute_mask, art, [('brain_mask','mask_file')]),
+        (art, make_cov, [('outlier_files','spike_id')]),
+        (datasource, brain_extraction_ants, [('struct','anatomical_image')]),
+        (brain_extraction_ants, coregistration, [('BrainExtractionBrain','fixed_image')]),
+        (mean_epi, coregistration, [('out_file','moving_image')]),
+        (brain_extraction_ants, normalization, [('BrainExtractionBrain','moving_image')]),
+        (coregistration, merge_transforms, [('composite_transform','in2')]),
+        (normalization, merge_transforms, [('composite_transform','in1')]),
+        (merge_transforms, apply_transforms, [('out','transforms')]),
+        (realign_fsl, apply_transforms, [('out_file','input_image')]),
+        (apply_transforms, mean_norm_epi, [('output_image','in_file')]),
+        (mean_norm_epi, plot_normalization_check, [('out_file','wra_img')]),
+        (apply_transforms, datasink, [('output_image', 'functional.@normalize')]),
+        (apply_transforms, smooth, [('output_image','in_file')]),
+        (smooth, datasink, [('smoothed_file','functional.@smooth')]),
+        (plot_realign, datasink, [('plot','functional.@plot_realign')]),
+        (plot_qa, datasink, [('plot','functional.@plot_qa')]),
+        (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
+        (make_cov, datasink, [('covariates','functional.@covariates')]),
+        (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
+        (normalization, datasink, [('warped_image','structural.@normalize')])         
+    ])
+
+    if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
+        workflow.write_graph(dotfilename=os.path.join(output_dir,'Preprocsteps'),format='png')
+
+    return workflow
