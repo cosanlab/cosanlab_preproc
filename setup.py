@@ -14,6 +14,7 @@ setup(
     url='http://github.com/cosanlab/cosanlab_preproc',
     install_requires=['nibabel','nipype','numpy', 'pandas', 'nltools','matplotlib', 'seaborn','nipy'],
     packages=find_packages(exclude=['cosanlab_preproc/tests']),
+    package_data={'cosanlab_preproc':['resources/*']},
     license='MIT',
     **extra_setuptools_args
 )
