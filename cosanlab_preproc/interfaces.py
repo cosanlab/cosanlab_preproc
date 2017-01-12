@@ -8,7 +8,7 @@ from __future__ import division
 
 '''
 
-__all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters', 'Create_Covariates', 'Build_Xmat']
+__all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters', 'Create_Covariates', 'Build_Xmat', 'GLM']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -21,8 +21,7 @@ import os
 import nibabel as nib
 from nipype.interfaces.base import isdefined, BaseInterface, TraitedSpec, File, traits
 from nilearn import plotting, image
-import nibabel as nib
-
+from nltools.data import Brain_Data
 
 class Plot_Coregistration_Montage_InputSpec(TraitedSpec):	
 	wra_img = File(exists=True, mandatory=True) 
@@ -110,13 +109,14 @@ class Plot_Quality_Control(BaseInterface):
 		#Apply mask first to deal with 0 sd for computing tsnr
 		mask = compute_epi_mask(dat_img)
 		masked_data = apply_mask(dat_img, mask)
-		global_mn = np.mean(masked_data,axis=0)
-		global_sd = np.std(masked_data,axis=0)
-		global_tsnr = np.divide(global_mn,global_sd)
-		mn = unmask(global_mn, mask)
-		sd = unmask(global_sd, mask)
-		snr = unmask(global_tsnr, mask)
-
+		mn = np.mean(masked_data,axis=0)
+		sd = np.std(masked_data,axis=0)
+		tsnr = np.divide(mn,sd)
+		mn = unmask(mn,mask)
+		sd = unmask(sd,mask)
+		tsnr = unmask(tsnr,mask)
+		global_mn = np.mean(masked_data,axis=1)
+		global_sd = np.std(masked_data,axis=1)
 
 		global_outlier = np.append(np.where(global_mn>np.mean(global_mn)+np.std(global_mn)*self.inputs.global_outlier_cutoff),
 		                           np.where(global_mn<np.mean(global_mn)-np.std(global_mn)*self.inputs.global_outlier_cutoff))
@@ -124,11 +124,6 @@ class Plot_Quality_Control(BaseInterface):
 		frame_outlier = np.append(np.where(frame_diff>np.mean(frame_diff)+np.std(frame_diff)*self.inputs.frame_outlier_cutoff),
 		                           np.where(frame_diff<np.mean(frame_diff)-np.std(frame_diff)*self.inputs.frame_outlier_cutoff))
 
-
-		#mn = nib.Nifti1Image(np.mean(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
-		#sd = nib.Nifti1Image(np.std(dat_img.get_data(), axis=3), affine=dat_img.get_affine())
-		#snr = nib.Nifti1Image(mn.get_data()/sd.get_data(),affine=dat_img.get_affine())	
-	
 		title = self.inputs.title
 
 		if title != "":
@@ -143,7 +138,7 @@ class Plot_Quality_Control(BaseInterface):
 		plot_stat_map(sd, title="Standard Deviation",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[1],
 		              draw_cross=False, black_bg=True,annotate=False,bg_img=None)
 
-		plot_stat_map(snr, title="SNR (mn/sd)",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[2],
+		plot_stat_map(tsnr, title="SNR (mn/sd)",cut_coords=range(-40, 40, 10), display_mode='z',axes=ax[2],
 		              draw_cross=False, black_bg=True,annotate=False,bg_img=None)
 
 		ax[3].plot(global_mn)
@@ -299,6 +294,7 @@ class Build_Xmat_InputSpec(TraitedSpec):
 
 class Build_Xmat_OutputSpec(TraitedSpec):
 	xmat = File(exists=True)
+	plot = File(exists=True)
 
 class Build_Xmat(BaseInterface):
 	input_spec = Build_Xmat_InputSpec
@@ -313,7 +309,7 @@ class Build_Xmat(BaseInterface):
 		from nipy.modalities.fmri.hemodynamic_models import glover_hrf
 		
 		covFile = self.inputs.covFile
-		onsetsFile =  self.inputs.onsertsFile
+		onsetsFile =  self.inputs.onsetsFile
 		TR = float(self.inputs.TR)
 		dur = float(self.inputs.dur)
 		fillNa = self.inputs.fillNa
@@ -322,7 +318,7 @@ class Build_Xmat(BaseInterface):
 			header = None
 		else:
 			header = 0
-		delim = self.inputs.delimx
+		delim = self.inputs.delim
 
 		hrf = glover_hrf(tr = TR,oversampling=1)
 
@@ -406,9 +402,11 @@ class Build_Xmat(BaseInterface):
 			if i > 0 and i < X.shape[0]:
 				label.set_visible(False)
 		
-		fig.savefig('Xmat.png')
+		plotFile = 'Xmat.png'
+		fig.savefig(plotFile)
 		plt.close(fig)
 		del fig
+		self._plot = plotFile
 
 		filename = 'Xmat.csv'
 		X.to_csv(filename,index=False)
@@ -420,4 +418,53 @@ class Build_Xmat(BaseInterface):
 	def _list_outputs(self):
 		outputs = self._outputs().get()
 		outputs["xmat"] = os.path.abspath(self._xmat)
+		outputs["plot"] = os.path.abspath(self._plot)
+		return outputs
+
+class GLM_InputSpec(TraitedSpec):
+	epiFile = File(exists=True,mandatory=True)
+	xmatFile = File(exists=True,mandatory=True)
+	detrend = traits.Bool(desc='whether to perform linear detrending',default=True)
+
+
+class GLM_OutputSpec(TraitedSpec):
+	betaImage = File(exists=True)
+	tstatImage = File(exists=True)
+	pvalImage = File(exists=True)
+
+class GLM(BaseInterface):
+	input_spec = GLM_InputSpec
+	output_spec = GLM_OutputSpec
+
+	def _run_interface(self,runtime):
+
+		xmat = pd.read_csv(self.inputs.xmatFile)
+		dat = Brain_Data(self.inputs.epiFile) 
+		dat.X = xmat
+		if self.inputs.detrend:
+			detrended = dat.detrend()
+			out = detrended.regress()
+		else:
+			out = out.regress()
+
+		betaFile = 'betas.nii.gz'
+		tstatFile = 'tstats.nii.gz'
+		pvalFile = 'pvals.nii.gz'
+
+		out['beta'].write(betaFile)
+		out['t'].write(tstatFile)
+		out['p'].write(pvalFile)
+
+		self._beta = betaFile
+		self._tstat = tstatFile
+		self._pval = pvalFile
+
+		runtime.returncode=0
+		return runtime
+
+	def _list_outputs(self):
+		outputs = self._outputs().get()
+		outputs["betaImage"] = os.path.abspath(self._beta)
+		outputs["tstatImage"] = os.path.abspath(self._tstat)
+		outputs["pvalImage"] = os.path.abspath(self._pval)
 		return outputs
