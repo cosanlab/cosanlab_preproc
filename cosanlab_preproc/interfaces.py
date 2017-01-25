@@ -111,7 +111,7 @@ class Plot_Quality_Control(BaseInterface):
 		masked_data = apply_mask(dat_img, mask)
 		mn = np.mean(masked_data,axis=0)
 		sd = np.std(masked_data,axis=0)
-		tsnr = np.divide(mn,sd)
+		tsnr = np.true_divide(mn,sd)
 		mn = unmask(mn,mask)
 		sd = unmask(sd,mask)
 		tsnr = unmask(tsnr,mask)
@@ -289,7 +289,7 @@ class Build_Xmat_InputSpec(TraitedSpec):
 	TR = traits.Float(desc='TR length',mandatory=True)
 	dur = traits.Float(desc='stimulus duration in s',mandatory=True)
 	header = traits.Bool(desc='whether onsets file has a header or not',default=True)
-	delim = traits.String(desc='delimiter used in onsets file',default=',')
+	delim = traits.Str(desc='delimiter used in onsets file',default=',')
 	fillNa = traits.Bool(desc='Fill nans with 0',default=True)
 
 class Build_Xmat_OutputSpec(TraitedSpec):
@@ -425,6 +425,7 @@ class GLM_InputSpec(TraitedSpec):
 	epiFile = File(exists=True,mandatory=True)
 	xmatFile = File(exists=True,mandatory=True)
 	detrend = traits.Bool(desc='whether to perform linear detrending',default=True)
+	prependName = traits.Str(default_value='')
 
 
 class GLM_OutputSpec(TraitedSpec):
@@ -447,9 +448,9 @@ class GLM(BaseInterface):
 		else:
 			out = out.regress()
 
-		betaFile = 'betas.nii.gz'
-		tstatFile = 'tstats.nii.gz'
-		pvalFile = 'pvals.nii.gz'
+		betaFile = 'betas'+self.inputs.prependName+'.nii.gz'
+		tstatFile = 'tstats'+self.inputs.prependName+'.nii.gz'
+		pvalFile = 'pvals'+self.inputs.prependName+'.nii.gz'
 
 		out['beta'].write(betaFile)
 		out['t'].write(tstatFile)

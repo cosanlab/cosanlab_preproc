@@ -527,7 +527,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     Brain Extraction + Bias Correction (ANTs)
     Coregistration (rigid) (ANTs)
     Normalization to MNI 152 2mm (non-linear) (ANTs)
-    Qualitry Control figure generation:
+    Quality Control figure generation:
         - Realignment parameters
         - Quality check of mean signal, sd and frame differences
         - Normalization check
@@ -539,7 +539,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
         subject_id: subject to run (should match folder name)
 
     Return:
-        workflow: A complete nipepe workflow
+        workflow: A complete nipype workflow
     """
 
     import os
@@ -793,6 +793,624 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
         (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
         (normalization, datasink, [('warped_image','structural.@normalize')])         
     ])
+
+    if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
+        workflow.write_graph(dotfilename=os.path.join(output_dir,'Preprocsteps'),format='png')
+
+    return workflow
+
+def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, smoothingKernel=4):
+    
+    """ 
+    Create a nipype preprocessing workflow to analyze data from the scanParams testing acquisitions.
+    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS 
+    Pre-processing steps include:
+    Realignment/Motion Correction (fsl)
+    Artifact Detection (nipype)
+    Brain Extraction + Bias Correction (ANTs)
+    Coregistration (rigid) (ANTs)
+    Normalization to MNI 152 2mm (non-linear) (ANTs)
+    Quality Control figure generation:
+        - Realignment parameters
+        - Quality check of mean signal, sd and frame differences
+        - Normalization check
+    Makes 3 design matrices: standard block design (Right, Left), "mvpa" design (R1, R2, R3, L1, L2,L3), contrast block (R-L)
+    Fits 3 first level models (REQUIRES NLTOOLS!)
+
+    Args: 
+        base_dir: path to raw data folder with subjects listed as sub-folders
+        output_dir: path where final outputted files and figures should go
+        resources_dir: path where template files for MNI and ANTs live
+        subject_id: subject to run (should match folder name)
+
+    Return:
+        workflow: A complete nipype workflow
+    """
+    import os
+    from glob import glob
+    import matplotlib
+    matplotlib.use('Agg')
+    from nipype.interfaces.io import DataSink, DataGrabber
+    from nipype.interfaces.utility import Merge, IdentityInterface, Function
+    from nipype.pipeline.engine import Node, Workflow 
+    from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates, Build_Xmat, GLM
+    from cosanlab_preproc.utils import get_resource_path
+    from nipype.interfaces.nipy.preprocess import ComputeMask 
+    from nipype.algorithms.rapidart import ArtifactDetect
+    from nipype.interfaces.ants.segmentation import BrainExtraction
+    from nipype.interfaces.ants import Registration, ApplyTransforms
+    from nipype.interfaces.fsl import MCFLIRT
+    from nipype.interfaces.fsl.maths import MeanImage
+    from nipype.interfaces.fsl.utils import Smooth
+
+    ###################################
+    ### GLOBALS, PATHS ###
+    ################################### 
+    MNItemplate = os.path.join(get_resource_path(),'MNI152_T1_2mm_brain.nii.gz')
+    MNItemplatehasskull = os.path.join(get_resource_path(),'MNI152_T1_2mm.nii.gz')
+    bet_ants_template = os.path.join(get_resource_path(),'OASIS_template.nii.gz')
+    bet_ants_prob_mask = os.path.join(get_resource_path(),'OASIS_BrainCerebellumProbabilityMask.nii.gz')
+    bet_ants_registration_mask = os.path.join(get_resource_path(),'OASIS_BrainCerebellumRegistrationMask.nii.gz')
+    #bet_ants_extraction_mask = os.path.join(get_resource_path(),'OASIS_BrainCerebellumExtractionMask.nii.gz')
+
+    ###################################
+    ### DATA INPUT ###
+    ################################### 
+    #Create a datagrabber that takes a subid as input and creates func and struct dirs
+    datasource = Node(DataGrabber(
+        infields=['subject_id'],
+        outfields = ['func','struct']),
+        name = 'datasource')
+    datasource.inputs.base_directory = base_dir
+    datasource.inputs.subject_id = subject_id
+    datasource.inputs.template = '*'
+    datasource.inputs.sort_filelist = True
+    datasource.inputs.field_template = {'struct': '%s/T1.nii.gz',
+                                        'func': '%s/*mm.nii.gz'} 
+    datasource.inputs.template_args = {'struct' :[['subject_id']],
+                                       'func': [['subject_id']]}
+
+    #Then grab all epis using an Identity Interface which is an iterable node
+    func_scans = Node(IdentityInterface(fields=['scan']),name='func_scans')
+    func_scans.inputs.subject_id  = subject_id
+    func_scans.iterables = ('scan', glob(os.path.join(base_dir,subject_id,'*mm.nii.gz')))
+
+    ###################################
+    ### TR GRABBER ###
+    ################################### 
+    def getTR(fName):
+        '''
+        Gets TR length of scan by reading in the nifti header.
+        '''
+        import nibabel as nib
+        f = nib.load(fName)
+        return round(f.header.get_zooms()[-1]*1000)/1000
+
+    get_tr = Node(interface=Function(input_names=['fName'],
+                                     output_names=['TR'],
+                                     function=getTR),
+                                     name='get_tr')
+
+    ###################################
+    ### ONSETS GRABBER ###
+    ################################### 
+    def getOnsets(fName):
+        '''
+        Gets onsets txt file given path to a .nii.gz file.
+        Assumes both files are named the same.
+        '''
+        import os
+        fPieces = os.path.split(fName)
+        scanId = fPieces[-1].split('.nii.gz')[0]
+        return os.path.join(fPieces[0],scanId+'.txt')
+
+    get_onsets = Node(interface=Function(input_names=['fName'],
+                                     output_names=['onsetsFile'],
+                                     function=getOnsets),
+                                     name='get_onsets')
+
+    ###################################
+    ### REALIGN ###
+    ###################################
+    realign_fsl = Node(MCFLIRT(),name="realign")
+    realign_fsl.inputs.cost = 'mutualinfo'
+    realign_fsl.inputs.mean_vol = True
+    realign_fsl.inputs.output_type = 'NIFTI_GZ'
+    realign_fsl.inputs.save_mats = True
+    realign_fsl.inputs.save_rms = True
+    realign_fsl.inputs.save_plots = True
+
+    ###################################
+    ### MEAN EPIs ###
+    ###################################
+    #For coregistration after realignment
+    mean_epi = Node(MeanImage(),name='mean_epi')
+    mean_epi.inputs.dimension = 'T'
+    
+    #For after normalization is done to plot checks 
+    mean_norm_epi = Node(MeanImage(),name='mean_norm_epi')
+    mean_norm_epi.inputs.dimension = 'T'
+
+    ###################################
+    ### MASK, ART, COV CREATION ###
+    ###################################
+    compute_mask = Node(ComputeMask(), name='compute_mask')
+    compute_mask.inputs.m = .05
+
+    art = Node(ArtifactDetect(),name='art')
+    art.inputs.use_differences = [True, False]
+    art.inputs.use_norm = True
+    art.inputs.norm_threshold = 1
+    art.inputs.zintensity_threshold = 3
+    art.inputs.mask_type = 'file'
+    art.inputs.parameter_source = 'FSL'
+
+    make_cov = Node(Create_Covariates(),name='make_cov')
+
+    ###################################
+    ### BRAIN EXTRACTION ###
+    ###################################
+    brain_extraction_ants = Node(BrainExtraction(),name='brain_extraction')
+    brain_extraction_ants.inputs.dimension = 3
+    brain_extraction_ants.inputs.use_floatingpoint_precision = 1
+    brain_extraction_ants.inputs.num_threads = 12
+    brain_extraction_ants.inputs.brain_probability_mask = bet_ants_prob_mask
+    brain_extraction_ants.inputs.keep_temporary_files = 1
+    brain_extraction_ants.inputs.brain_template = bet_ants_template
+    brain_extraction_ants.inputs.extraction_registration_mask = bet_ants_registration_mask
+
+    ###################################
+    ### COREGISTRATION ###
+    ################################### 
+    coregistration = Node(Registration(), name='coregistration')
+    coregistration.inputs.float = False
+    coregistration.inputs.output_transform_prefix = "meanEpi2highres"
+    coregistration.inputs.transforms = ['Rigid']
+    coregistration.inputs.transform_parameters = [(0.1,), (0.1,)]
+    coregistration.inputs.number_of_iterations = [[1000,500,250,100]]
+    coregistration.inputs.dimension = 3
+    coregistration.inputs.num_threads = 12
+    coregistration.inputs.write_composite_transform = True
+    coregistration.inputs.collapse_output_transforms = True
+    coregistration.inputs.metric = ['MI']
+    coregistration.inputs.metric_weight = [1]
+    coregistration.inputs.radius_or_number_of_bins = [32]
+    coregistration.inputs.sampling_strategy = ['Regular']
+    coregistration.inputs.sampling_percentage = [0.25]
+    coregistration.inputs.convergence_threshold = [1.e-8]
+    coregistration.inputs.convergence_window_size = [10]
+    coregistration.inputs.smoothing_sigmas = [[3,2,1,0]]
+    coregistration.inputs.sigma_units = ['mm']
+    coregistration.inputs.shrink_factors = [[8,4,2,1]]
+    coregistration.inputs.use_estimate_learning_rate_once = [True]
+    coregistration.inputs.use_histogram_matching = [False] 
+    coregistration.inputs.initial_moving_transform_com = True 
+    coregistration.inputs.output_warped_image = True
+    coregistration.inputs.winsorize_lower_quantile = 0.01 
+    coregistration.inputs.winsorize_upper_quantile = 0.99
+
+    ###################################
+    ### NORMALIZATION ###
+    ################################### 
+    #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
+    normalization = Node(Registration(),name='normalization')
+    normalization.inputs.float = False
+    normalization.inputs.collapse_output_transforms=True
+    normalization.inputs.convergence_threshold=[1e-06]
+    normalization.inputs.convergence_window_size=[10]
+    normalization.inputs.dimension = 3
+    normalization.inputs.fixed_image = MNItemplate #MNI 152 1mm
+    normalization.inputs.initial_moving_transform_com=True
+    normalization.inputs.metric=['MI', 'MI', 'CC']
+    normalization.inputs.metric_weight=[1.0]*3
+    normalization.inputs.number_of_iterations=[[1000, 500, 250, 100],
+                                     [1000, 500, 250, 100],
+                                     [100, 70, 50, 20]]
+    normalization.inputs.num_threads=12
+    normalization.inputs.output_transform_prefix = 'anat2template'
+    normalization.inputs.output_inverse_warped_image=True
+    normalization.inputs.output_warped_image = True
+    normalization.inputs.radius_or_number_of_bins=[32, 32, 4]
+    normalization.inputs.sampling_percentage=[0.25, 0.25, 1]
+    normalization.inputs.sampling_strategy=['Regular',
+                                  'Regular',
+                                  'None']
+    normalization.inputs.shrink_factors=[[8, 4, 2, 1]]*3
+    normalization.inputs.sigma_units=['vox']*3
+    normalization.inputs.smoothing_sigmas=[[3, 2, 1, 0]]*3
+    normalization.inputs.terminal_output='stream'
+    normalization.inputs.transforms = ['Rigid','Affine','SyN']
+    normalization.inputs.transform_parameters=[(0.1,),
+                                     (0.1,),
+                                     (0.1, 3.0, 0.0)]
+    normalization.inputs.use_histogram_matching=True
+    normalization.inputs.winsorize_lower_quantile=0.005
+    normalization.inputs.winsorize_upper_quantile=0.995
+    normalization.inputs.write_composite_transform=True
+    
+    ###################################
+    ### APPLY TRANSFORMS AND SMOOTH ###
+    ###################################
+    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation. 
+
+    merge_transforms = Node(Merge(2), iterfield=['in2'], name ='merge_transforms')
+
+    apply_transforms = Node(ApplyTransforms(),iterfield=['input_image'],name='apply_transforms')
+    apply_transforms.inputs.input_image_type = 3
+    apply_transforms.inputs.float = False
+    apply_transforms.inputs.num_threads = 12
+    apply_transforms.inputs.environ = {}
+    apply_transforms.inputs.interpolation = 'BSpline'
+    apply_transforms.inputs.invert_transform_flags = [False, False]
+    apply_transforms.inputs.terminal_output = 'stream'
+    apply_transforms.inputs.reference_image = MNItemplate
+
+    #Use FSL for smoothing
+    smooth = Node(Smooth(),name='smooth')
+    smooth.inputs.sigma = smoothingKernel
+
+    ###################################
+    ### PLOTS ###
+    ###################################
+
+    plot_realign = Node(Plot_Realignment_Parameters(),name="plot_realign")
+    plot_qa = Node(Plot_Quality_Control(),name="plot_qa")
+    plot_normalization_check = Node(Plot_Coregistration_Montage(),name="plot_normalization_check")
+    plot_normalization_check.inputs.canonical_img = MNItemplatehasskull
+
+    ###################################
+    ### Xmat ###
+    ###################################
+
+    build_xmat = Node(Build_Xmat(),name="build_xmat")
+    build_xmat.inputs.header = False
+    build_xmat.inputs.delim = '\t'
+    build_xmat.inputs.fillNa = True
+    build_xmat.inputs.dur = 8
+
+    ###################################
+    ### CONTRAST Xmat ###
+    ################################### 
+    def buildContrastXmat(covFile,onsetsFile,TR):
+
+        import matplotlib
+        matplotlib.use('Agg')
+        from nipy.modalities.fmri.hemodynamic_models import glover_hrf
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import pandas as pd
+        import numpy as np
+
+        dur = np.ceil(8./TR)
+        header = None
+        delim = '\t'
+        hrf = glover_hrf(tr = TR,oversampling=1)
+
+        #Just a single file 
+        C = pd.read_csv(covFile)
+        C['intercept'] = 1  
+        O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
+        if header is None:
+            if isinstance(O.iloc[0,0],str):
+                O.columns = ['Stim','Onset']
+            else:
+                O.columns = ['Onset','Stim']
+        O['Onset'] = O['Onset'].apply(lambda x: int(np.floor(x/TR)))
+
+        #Build dummy codes
+        #Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
+        X = pd.DataFrame(columns=['contrast'],data=np.zeros([C.shape[0],1]))
+        for i, row in O.iterrows():
+            #do dur-1 for slicing because .ix includes the last element of the slice
+            if row['Stim'] == 'right':
+                X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,'contrast'] = 1
+            else:
+                X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,'contrast'] = -1
+                
+        X['contrast']= np.convolve(hrf,X.contrast.values)[:X.shape[0]]
+        X = pd.concat([X,C],axis=1)
+        X = X.fillna(0)
+
+        matplotlib.rcParams['axes.edgecolor'] = 'black'
+        matplotlib.rcParams['axes.linewidth'] = 2
+        fig, ax = plt.subplots(1,figsize=(12,10))
+
+        ax = sns.heatmap(X,cmap='gray', cbar=False,ax=ax);
+
+        for _, spine in ax.spines.items():
+            spine.set_visible(True)
+        for i, label in enumerate(ax.get_yticklabels()):
+            if i > 0 and i < X.shape[0]:
+                label.set_visible(False)
+
+        plotFile = 'Xmat_con.png'
+        fig.savefig(plotFile)
+        plt.close(fig)
+        del fig
+
+        xmatFile = 'Xmat_con.csv'
+        X.to_csv(xmatFile,index=False)
+        
+        return plotFile, xmatFile
+
+    build_xmat_con = Node(interface=Function(input_names=['covFile','onsetsFile','TR'],
+                                     output_names=['plot','xmat'],
+                                     function=buildContrastXmat),
+                                     name='build_xmat_con')
+
+
+    ###################################
+    ### MVPA Xmat ###
+    ################################### 
+    def buildMVPAXmat(covFile,onsetsFile,TR):
+
+        import matplotlib
+        matplotlib.use('Agg')
+        from nipy.modalities.fmri.hemodynamic_models import glover_hrf
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import pandas as pd
+        import numpy as np
+
+        dur = np.ceil(8./TR)
+        header = None
+        delim = '\t'
+        hrf = glover_hrf(tr = TR,oversampling=1)
+
+        #Just a single file 
+        C = pd.read_csv(covFile)
+        C['intercept'] = 1  
+        O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
+        if header is None:
+            if isinstance(O.iloc[0,0],str):
+                O.columns = ['Stim','Onset']
+            else:
+                O.columns = ['Onset','Stim']
+        O['Onset'] = O['Onset'].apply(lambda x: int(np.floor(x/TR)))
+
+        #Uniquify stims
+        leftCount = 1
+        rightCount = 1
+        newStims = []
+        for i, row in O.iterrows():
+            if row['Stim'] == 'right':
+                newStims.append('right_'+str(rightCount))
+                rightCount +=1
+            elif row['Stim'] == 'left':
+                newStims.append('left_'+str(leftCount))
+                leftCount +=1
+        O['Stim'] = newStims
+
+        #Build dummy codes
+        #Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
+        X = pd.DataFrame(columns=O.Stim.unique(),data=np.zeros([C.shape[0],len(O.Stim.unique())]))
+        for i, row in O.iterrows():
+            #do dur-1 for slicing because .ix includes the last element of the slice
+            X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,row['Stim']] = 1
+        X = X.reindex_axis(sorted(X.columns), axis=1)
+
+        for i in xrange(X.shape[1]):
+            X.iloc[:,i] = np.convolve(hrf,X.iloc[:,i])[:X.shape[0]]
+        X = pd.concat([X,C],axis=1)
+        X = X.fillna(0)
+
+        matplotlib.rcParams['axes.edgecolor'] = 'black'
+        matplotlib.rcParams['axes.linewidth'] = 2
+        fig, ax = plt.subplots(1,figsize=(12,10))
+
+        ax = sns.heatmap(X,cmap='gray', cbar=False,ax=ax);
+
+        for _, spine in ax.spines.items():
+            spine.set_visible(True)
+        for i, label in enumerate(ax.get_yticklabels()):
+            if i > 0 and i < X.shape[0]:
+                label.set_visible(False)
+
+        plotFile = 'Xmat_mvpa.png'
+        fig.savefig(plotFile)
+        plt.close(fig)
+        del fig
+
+        xmatFile = 'Xmat_mvpa.csv'
+        X.to_csv(xmatFile,index=False)
+        
+        return plotFile, xmatFile
+
+    build_xmat_mvpa = Node(interface=Function(input_names=['covFile','onsetsFile','TR'],
+                                     output_names=['plot','xmat'],
+                                     function=buildMVPAXmat),
+                                     name='build_xmat_mvpa')
+
+    ###################################
+    ### GLM CONTRAST###
+    ################################### 
+    glm = Node(GLM(),name="glm")
+    glm.inputs.detrend = True
+
+    ###################################
+    ### GLM CONTRAST###
+    ################################### 
+    glm_con = Node(GLM(),name="glm_con")
+    glm_con.inputs.detrend = True
+    glm_con.inputs.prependName = 'con'
+
+    ###################################
+    ### GLM MVPA###
+    ################################### 
+    glm_mvpa = Node(GLM(),name="glm_mvpa")
+    glm_mvpa.inputs.detrend = True
+    glm_mvpa.inputs.prependName = 'mvpa'
+    
+    ###################################
+    ### DATA OUTPUT ###
+    ###################################
+    #Collect all final outputs in the output dir and get rid of file name additions
+    datasink = Node(DataSink(),name='datasink')
+    datasink.inputs.base_directory = output_dir
+    datasink.inputs.container = subject_id
+    datasink.inputs.substitutions = [('_scan_..data..fmriData..' + subject_id + '..','')]
+
+    ###################################
+    ### FILE GETTER (used to run alt glms after preproc) ###
+    ###################################
+    # def fileGetter(subject_id,output_dir):
+    #   '''
+    #   Gets onsets txt file given path to a .nii.gz file.
+    #   Assumes both files are named the same.
+    #   '''
+    #   import os
+    #   #Get final epi
+
+    #   fPieces = os.path.split(fName)
+    #   scanId = fPieces[-1].split('.nii.gz')[0]
+    #   return os.path.join(fPieces[0],scanId+'.txt')
+
+    # get_onsets = Node(interface=Function(input_names=['fName'],
+    #                                output_names=['onsetsFile'],
+    #                                function=getOnsets),
+    #                                name='get_onsets')
+
+    ###################################
+    ### HOOK IT ALL CAPTAIN! ###
+    ###################################
+    workflow = Workflow(name='Preprocessing')
+    workflow.base_dir = os.path.join(base_dir,subject_id)
+    
+    workflow.connect([
+        (func_scans, realign_fsl, [('scan','in_file')]),
+        (func_scans, get_tr, [('scan','fName')]),
+        (func_scans, get_onsets, [('scan','fName')]),
+        (realign_fsl, plot_realign, [('par_file','realignment_parameters')]),
+        (realign_fsl, plot_qa, [('out_file','dat_img')]),
+        (realign_fsl, art, [('out_file','realigned_files'),
+                           ('par_file','realignment_parameters')]),
+        (realign_fsl, mean_epi, [('out_file','in_file')]),
+        (realign_fsl, make_cov, [('par_file','realignment_parameters')]),
+        (mean_epi, compute_mask, [('out_file','mean_volume')]),
+        (compute_mask, art, [('brain_mask','mask_file')]),
+        (art, make_cov, [('outlier_files','spike_id')]),
+        (datasource, brain_extraction_ants, [('struct','anatomical_image')]),
+        (brain_extraction_ants, coregistration, [('BrainExtractionBrain','fixed_image')]),
+        (mean_epi, coregistration, [('out_file','moving_image')]),
+        (brain_extraction_ants, normalization, [('BrainExtractionBrain','moving_image')]),
+        (coregistration, merge_transforms, [('composite_transform','in2')]),
+        (normalization, merge_transforms, [('composite_transform','in1')]),
+        (merge_transforms, apply_transforms, [('out','transforms')]),
+        (realign_fsl, apply_transforms, [('out_file','input_image')]),
+        (apply_transforms, mean_norm_epi, [('output_image','in_file')]),
+        (mean_norm_epi, plot_normalization_check, [('out_file','wra_img')]),
+        (get_tr, build_xmat, [('TR','TR')]),
+        (get_onsets, build_xmat, [('onsetsFile', 'onsetsFile')]),
+        (make_cov, build_xmat, [('covariates','covFile')]),
+        (build_xmat, datasink, [('xmat', 'functional.@xmat'),
+                                ('plot', 'functional.@xmatplot')]),
+        (build_xmat, glm, [('xmat','xmatFile')]),
+        (smooth, glm, [('smoothed_file','epiFile')]),
+        (glm, datasink, [('betaImage','glm.@beta'),
+                         ('tstatImage','glm.@tstat'),
+                         ('pvalImage','glm.@pval')]),
+        
+        (get_tr, build_xmat_con, [('TR','TR')]),
+        (get_onsets, build_xmat_con, [('onsetsFile', 'onsetsFile')]),
+        (make_cov, build_xmat_con, [('covariates','covFile')]),
+        (build_xmat_con, datasink, [('xmat', 'functional.@xmatcon'),
+                                ('plot', 'functional.@xmatconplot')]),
+        (build_xmat_con, glm_con, [('xmat','xmatFile')]),
+        (smooth, glm_con, [('smoothed_file','epiFile')]),
+        (glm_con, datasink, [('betaImage','glm.@betacon'),
+                         ('tstatImage','glm.@tstatcon'),
+                         ('pvalImage','glm.@pvalcon')]),
+        
+        (get_tr, build_xmat_mvpa, [('TR','TR')]),
+        (get_onsets, build_xmat_mvpa, [('onsetsFile', 'onsetsFile')]),
+        (make_cov, build_xmat_mvpa, [('covariates','covFile')]),
+        (build_xmat_mvpa, datasink, [('xmat', 'functional.@xmatmvpa'),
+                                ('plot', 'functional.@xmatmvpaplot')]),
+        (build_xmat_mvpa, glm_mvpa, [('xmat','xmatFile')]),
+        (smooth, glm_mvpa, [('smoothed_file','epiFile')]),
+        (glm_mvpa, datasink, [('betaImage','glm.@betamvpa'),
+                         ('tstatImage','glm.@tstatmvpa'),
+                         ('pvalImage','glm.@pvalmvpa')]),
+        
+        
+        (apply_transforms, datasink, [('output_image', 'functional.@normalize')]),
+        (apply_transforms, smooth, [('output_image','in_file')]),
+        (smooth, datasink, [('smoothed_file','functional.@smooth')]),
+        (plot_realign, datasink, [('plot','functional.@plot_realign')]),
+        (plot_qa, datasink, [('plot','functional.@plot_qa')]),
+        (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
+        (make_cov, datasink, [('covariates','functional.@covariates')]),
+        (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
+        (normalization, datasink, [('warped_image','structural.@normalize')])         
+    ])
+
+
+
+## Old workflow using a single glm
+    # workflow.connect([
+ #        (func_scans, realign_fsl, [('scan','in_file')]),
+ #        (func_scans, get_tr, [('scan','fName')]),
+ #        (func_scans, get_onsets, [('scan','fName')]),
+ #        (realign_fsl, plot_realign, [('par_file','realignment_parameters')]),
+ #        (realign_fsl, plot_qa, [('out_file','dat_img')]),
+ #        (realign_fsl, art, [('out_file','realigned_files'),
+ #                           ('par_file','realignment_parameters')]),
+ #        (realign_fsl, mean_epi, [('out_file','in_file')]),
+ #        (realign_fsl, make_cov, [('par_file','realignment_parameters')]),
+ #        (mean_epi, compute_mask, [('out_file','mean_volume')]),
+ #        (compute_mask, art, [('brain_mask','mask_file')]),
+ #        (art, make_cov, [('outlier_files','spike_id')]),
+ #        (datasource, brain_extraction_ants, [('struct','anatomical_image')]),
+ #        (brain_extraction_ants, coregistration, [('BrainExtractionBrain','fixed_image')]),
+ #        (mean_epi, coregistration, [('out_file','moving_image')]),
+ #        (brain_extraction_ants, normalization, [('BrainExtractionBrain','moving_image')]),
+ #        (coregistration, merge_transforms, [('composite_transform','in2')]),
+ #        (normalization, merge_transforms, [('composite_transform','in1')]),
+ #        (merge_transforms, apply_transforms, [('out','transforms')]),
+ #        (realign_fsl, apply_transforms, [('out_file','input_image')]),
+ #        (apply_transforms, mean_norm_epi, [('output_image','in_file')]),
+ #        (mean_norm_epi, plot_normalization_check, [('out_file','wra_img')]),
+ #        (get_tr, build_xmat, [('TR','TR')]),
+ #        (get_onsets, build_xmat, [('onsetsFile', 'onsetsFile')]),
+ #        (make_cov, build_xmat, [('covariates','covFile')]),
+ #        (build_xmat, datasink, [('xmat', 'functional.@xmat'),
+ #                              ('plot', 'functional.@xmatplot')]),
+ #        (build_xmat, glm, [('xmat','xmatFile')]),
+        
+        
+ #        (get_tr, build_xmat_con, [('TR','TR')]),
+ #        (get_onsets, build_xmat_con, [('onsetsFile', 'onsetsFile')]),
+ #        (make_cov, build_xmat_con, [('covariates','covFile')]),
+ #        (build_xmat_con, datasink, [('xmat', 'functional.@xmat'),
+ #                              ('plot', 'functional.@xmatplot')]),
+ #        (build_xmat_con, glm_con, [('xmat','xmatFile')]),
+ #        (smooth, glm_con, [('smoothed_file','epiFile')]),
+
+ #        (get_tr, build_xmat_mvpa, [('TR','TR')]),
+ #        (get_onsets, build_xmat_mvpa, [('onsetsFile', 'onsetsFile')]),
+ #        (make_cov, build_xmat_mvpa, [('covariates','covFile')]),
+ #        (build_xmat_mvpa, datasink, [('xmat', 'functional.@xmat'),
+ #                              ('plot', 'functional.@xmatplot')]),
+ #        (build_xmat_mvpa, glm_mvpa, [('xmat','xmatFile')]),
+ #        (smooth, glm_mvpa, [('smoothed_file','epiFile')]),
+ #        (glm_mvpa, datasink, [('betaImage','glm.@beta'),
+ #                       ('tstatImage','glm.@tstat'),
+ #                       ('pvalImage','glm.@pval')]),
+        
+ #        (smooth, glm, [('smoothed_file','epiFile')]),
+ #        (glm, datasink, [('betaImage','glm.@beta'),
+ #                       ('tstatImage','glm.@tstat'),
+ #                       ('pvalImage','glm.@pval')]),
+ #        (apply_transforms, datasink, [('output_image', 'functional.@normalize')]),
+ #        (apply_transforms, smooth, [('output_image','in_file')]),
+ #        (smooth, datasink, [('smoothed_file','functional.@smooth')]),
+ #        (plot_realign, datasink, [('plot','functional.@plot_realign')]),
+ #        (plot_qa, datasink, [('plot','functional.@plot_qa')]),
+ #        (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
+ #        (make_cov, datasink, [('covariates','functional.@covariates')]),
+ #        (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
+ #        (normalization, datasink, [('warped_image','structural.@normalize')])         
+ #    ])
 
     if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
         workflow.write_graph(dotfilename=os.path.join(output_dir,'Preprocsteps'),format='png')
