@@ -264,13 +264,13 @@ class Down_Sample_Precision(BaseInterface):
 
 		dat = nib.load(in_file)
 		out = nib.Nifti1Image(dat.get_data().astype(data_type),dat.affine)
-	    
+
 	    #Generate output file name
 		out_file = os.path.split(in_file)[-1].split('.nii.gz')[0]+'_'+data_type+'.nii.gz'
 		out.to_filename(out_file)
-	    
+
 		self._out_file = out_file
-		
+
 		runtime.returncode=0
 		return runtime
 
@@ -279,6 +279,42 @@ class Down_Sample_Precision(BaseInterface):
 		outputs["out_file"] = os.path.abspath(self._out_file)
 		return outputs
 
+class Create_Covariates_InputSpec(TraitedSpec):	
+	realignment_parameters = File(exists=True, mandatory=True)
+	spike_id = File(exists=True, mandatory=True)
+
+class Create_Covariates_OutputSpec(TraitedSpec):
+	covariates = File(exists=True)
+
+class Create_Covariates(BaseInterface):
+	input_spec = Create_Covariates_InputSpec
+	output_spec = Create_Covariates_OutputSpec
+
+	def _run_interface(self, runtime):
+		ra = pd.read_table(self.inputs.realignment_parameters, header=None, sep=r"\s*", names=['ra' + str(x) for x in range(1,7)])
+		spike = pd.read_table(self.inputs.spike_id, header=None,names=['Spikes'])
+
+		ra = ra-ra.mean() #mean center
+		ra[['rasq' + str(x) for x in range(1,7)]] = ra**2 #add squared
+		ra[['radiff' + str(x) for x in range(1,7)]] = pd.DataFrame(ra[ra.columns[0:6]].diff()) #derivative
+		ra[['radiffsq' + str(x) for x in range(1,7)]] = pd.DataFrame(ra[ra.columns[0:6]].diff())**2 #derivatives squared
+
+		#build spike regressors
+		for i,loc in enumerate(spike['Spikes']):
+			ra['spike' + str(i+1)] = 0
+			ra['spike' + str(i+1)].iloc[loc] = 1
+
+		filename = 'covariates.csv'
+		ra.to_csv(filename, index=False) #write out to file
+		self._covariates = filename
+
+		runtime.returncode=0
+		return runtime
+
+	def _list_outputs(self):
+		outputs = self._outputs().get()
+		outputs["covariates"] = os.path.abspath(self._covariates)
+		return outputs
 
 # class Build_Xmat_InputSpec(TraitedSpec):
 # 	onsetsFile = File(exists=True, mandatory=True)
