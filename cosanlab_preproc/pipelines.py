@@ -10,7 +10,7 @@ __all__ = ['create_spm_preproc_func_pipeline','Couple_Preproc_Pipeline','TV_Prep
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
-import nipype.interfaces.io as nio 
+import nipype.interfaces.io as nio
 import nipype.interfaces.utility as util
 from nipype.pipeline.engine import Node, Workflow
 from nipype.interfaces.base import BaseInterface, TraitedSpec, File, traits
@@ -53,7 +53,7 @@ def create_spm_preproc_func_pipeline(data_dir=None, subject_id=None, task_list=N
 	ta = Node(interface=util.Function(input_names=['tr', 'n_slices'], output_names=['ta'],  function = get_ta), name="ta")
 	ta.inputs.tr=tr
 
-	#Slice Timing: sequential ascending 
+	#Slice Timing: sequential ascending
 	slice_timing = Node(interface=spm.SliceTiming(), name="slice_timing")
 	slice_timing.inputs.time_repetition = tr
 	slice_timing.inputs.ref_slice = 1
@@ -79,7 +79,7 @@ def create_spm_preproc_func_pipeline(data_dir=None, subject_id=None, task_list=N
 	coregister = Node(interface=spm.Coregister(), name="coregister")
 	coregister.inputs.jobtype = 'estimate'
 
-	# Segment structural, gray/white/csf,mni, 
+	# Segment structural, gray/white/csf,mni,
 	segment = Node(interface=spm.Segment(), name="segment")
 	segment.inputs.save_bias_corrected = True
 
@@ -149,9 +149,9 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
 
     Returns:
         workflow: a nipype workflow that can be run
-        
+
     """
-    
+
     from nipype.interfaces.dcm2nii import Dcm2nii
     from nipype.interfaces.fsl import Merge, TOPUP, ApplyTOPUP
     import nipype.interfaces.io as nio
@@ -160,7 +160,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     from nipype.pipeline.engine import Node, Workflow
     from nipype.interfaces.fsl.maths import UnaryMaths
     from nipype.interfaces.nipy.preprocess import Trim
-    from nipype.algorithms.rapidart import ArtifactDetect 
+    from nipype.algorithms.rapidart import ArtifactDetect
     from nipype.interfaces import spm
     from nipype.interfaces.spm import Normalize12
     from nipype.algorithms.misc import Gunzip
@@ -182,7 +182,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     # Set the way matlab should be called
     mlab.MatlabCommand.set_default_matlab_cmd("matlab -nodesktop -nosplash")
     mlab.MatlabCommand.set_default_paths(spm_path)
-    
+
     # Get File Names for different types of scans.  Parse into separate processing streams
     datasource = Node(interface=nio.DataGrabber(infields=['subject_id'], outfields=['struct', 'ap', 'pa']),name='datasource')
     datasource.inputs.base_directory = base_dir
@@ -206,7 +206,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     ap_dcm2nii.inputs.gzip_output = True
     ap_dcm2nii.inputs.output_dir = '.'
     ap_dcm2nii.inputs.date_in_filename = False
-    
+
     pa_dcm2nii = Node(interface = Dcm2nii(),name='pa_dcm2nii')
     pa_dcm2nii.inputs.gzip_output = True
     pa_dcm2nii.inputs.output_dir = '.'
@@ -221,11 +221,11 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     s_dcm2nii.inputs.gzip_output = True
     s_dcm2nii.inputs.output_dir = '.'
     s_dcm2nii.inputs.date_in_filename = False
-    
+
     ########################################
     ## Setup Nodes for distortion correction
     ########################################
-    
+
     # merge output files into list
     merge_to_file_list = Node(interface=Merge_List(2), infields=['in1','in2'], name='merge_to_file_list')
 
@@ -292,8 +292,12 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     plot_normalization_check = Node(interface=Plot_Coregistration_Montage(), name="plot_normalization_check")
     plot_normalization_check.inputs.canonical_img = canonical_file
 
+    #Plot QA
+    plot_qa = Node(Plot_Quality_Control(),name="plot_qa")
+
     #Create Mask
     compute_mask = Node(interface=ComputeMask(), name="compute_mask")
+
     #remove lower 5% of histogram of mean image
     compute_mask.inputs.m = .05
 
@@ -309,7 +313,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     datasink = Node(interface=nio.DataSink(), name='datasink')
     datasink.inputs.base_directory = output_dir
     datasink.inputs.container = subject_id
-                                       
+
     ########################################
     # Create Workflow
     ########################################
@@ -325,7 +329,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
                         (merge_to_file_list, merger,[('out','in_files')]),
                         (merger, topup,[('merged_file','in_file')]),
                         (topup, apply_topup,[('out_fieldcoef','in_topup_fieldcoef'),
-                                            ('out_movpar','in_topup_movpar')]),                  
+                                            ('out_movpar','in_topup_movpar')]),
                         (f_dcm2nii, trim,[('converted_files','in_file')]),
                         (trim, apply_topup,[('out_file','in_files')]),
                         (apply_topup, abs_maths,[('out_corrected','in_file')]),
@@ -334,6 +338,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
                         (s_dcm2nii, gunzip_struc,[('converted_files','in_file')]),
                         (gunzip_struc,coregister, [('out_file', 'source')]),
                         (coregister, normalize,[('coregistered_source','image_to_align')]),
+                        (realign, plot_qa, [('realigned_files','dat_img')]),
                         (realign,coregister, [('mean_image', 'target'),
                                               ('realigned_files', 'apply_to_files')]),
                         (realign,normalize, [(('mean_image', get_vox_dims), 'write_voxel_sizes')]),              
@@ -354,6 +359,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
                         (smooth, datasink, [('smoothed_files', 'functional.@smooth')]),
                         (plot_realign, datasink, [('plot', 'functional.@plot_realign')]),
                         (plot_normalization_check, datasink, [('plot', 'functional.@plot_normalization')]),
+                        (plot_qa, datasink, [('plot','functional.@plot_qa')]),
                         (make_cov, datasink, [('covariates', 'functional.@covariates')])])
     return workflow
 
@@ -368,16 +374,16 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
 
     Returns:
         workflow: a nipype workflow that can be run
-        
+
     """
-    
+
     import nipype.interfaces.io as nio
     import nipype.interfaces.utility as util
     from nipype.interfaces.utility import Merge as Merge_List
     from nipype.pipeline.engine import Node, Workflow
     from nipype.interfaces.fsl.maths import UnaryMaths
     from nipype.interfaces.nipy.preprocess import Trim
-    from nipype.algorithms.rapidart import ArtifactDetect 
+    from nipype.algorithms.rapidart import ArtifactDetect
     from nipype.interfaces import spm
     from nipype.interfaces.spm import Normalize12
     from nipype.algorithms.misc import Gunzip
@@ -399,7 +405,7 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
     # Set the way matlab should be called
     mlab.MatlabCommand.set_default_matlab_cmd("matlab -nodesktop -nosplash")
     mlab.MatlabCommand.set_default_paths(spm_path)
-    
+
     # Get File Names for different types of scans.  Parse into separate processing streams
     datasource = Node(interface=nio.DataGrabber(infields=['subject_id'], outfields=[
                 'struct', 'func']),name='datasource')
@@ -411,11 +417,11 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
                                        'func':[['subject_id']]}
     datasource.inputs.subject_id = subject_id
     datasource.inputs.sort_filelist=True
-   
+
     # iterate over functional scans to define paths
     func_source = Node(interface=util.IdentityInterface(fields=['scan']),name="func_source")
     func_source.iterables = ('scan', glob.glob(os.path.join(base_dir,subject_id,'*ep*nii.gz')))
-    
+
 
     ########################################
     ## Preprocessing
@@ -458,6 +464,9 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
     plot_normalization_check = Node(interface=Plot_Coregistration_Montage(), name="plot_normalization_check")
     plot_normalization_check.inputs.canonical_img = canonical_file
 
+    #Plot QA
+    plot_qa = Node(Plot_Quality_Control(),name="plot_qa")
+
     #Create Mask
     compute_mask = Node(interface=ComputeMask(), name="compute_mask")
     #remove lower 5% of histogram of mean image
@@ -478,7 +487,7 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
     datasink = Node(interface=nio.DataSink(), name='datasink')
     datasink.inputs.base_directory = output_dir
     datasink.inputs.container = subject_id
-                                       
+
     ########################################
     # Create Workflow
     ########################################
@@ -486,7 +495,7 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
     workflow = Workflow(name = 'Preprocessed')
     workflow.base_dir = os.path.join(base_dir,subject_id)
     workflow.connect([(datasource, gunzip_struc,[('struct','in_file')]),
-                        (func_source, trim,[('scan','in_file')]),                
+                        (func_source, trim,[('scan','in_file')]),
                         (trim, gunzip_func,[('out_file','in_file')]),
                         (gunzip_func, realign, [('out_file', 'in_files')]),
                         (realign, quality_control, [('realigned_files', 'dat_img')]),
@@ -494,7 +503,7 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
                         (coregister, normalize,[('coregistered_source','image_to_align')]),
                         (realign,coregister, [('mean_image', 'target'),
                                               ('realigned_files', 'apply_to_files')]),
-                        (realign,normalize, [(('mean_image', get_vox_dims), 'write_voxel_sizes')]),              
+                        (realign,normalize, [(('mean_image', get_vox_dims), 'write_voxel_sizes')]),
                         (coregister,normalize, [('coregistered_files', 'apply_to_files')]),
                         (normalize, smooth, [('normalized_files', 'in_files')]),
                         (realign, compute_mask, [('mean_image','mean_volume')]),
@@ -516,10 +525,10 @@ def TV_Preproc_Pipeline_OLD(base_dir=None, output_dir=None, subject_id=None, spm
     return workflow
 
 def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subject_id=None, volsToTrim = 5, smoothingKernel = 4):
-    
-    """ 
+
+    """
     Create a nipype preprocessing workflow to analyze data from the TV study.
-    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS 
+    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS
     Pre-processing steps include:
     Trimming extra scans (nipy)
     Realignment/Motion Correction (fsl)
@@ -532,7 +541,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
         - Quality check of mean signal, sd and frame differences
         - Normalization check
 
-    Args: 
+    Args:
         base_dir: path to raw data folder with subjects listed as sub-folders
         output_dir: path where final outputted files and figures should go
         resources_dir: path where template files for MNI and ANTs live
@@ -548,10 +557,10 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     matplotlib.use('Agg')
     from nipype.interfaces.io import DataSink, DataGrabber
     from nipype.interfaces.utility import Merge, IdentityInterface
-    from nipype.pipeline.engine import Node, Workflow 
+    from nipype.pipeline.engine import Node, Workflow
     from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates
     from cosanlab_preproc.utils import get_resource_path
-    from nipype.interfaces.nipy.preprocess import Trim, ComputeMask 
+    from nipype.interfaces.nipy.preprocess import Trim, ComputeMask
     from nipype.algorithms.rapidart import ArtifactDetect
     from nipype.interfaces.ants.segmentation import BrainExtraction
     from nipype.interfaces.ants import Registration, ApplyTransforms
@@ -561,7 +570,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
 
     ###################################
     ### GLOBALS, PATHS ###
-    ################################### 
+    ###################################
     MNItemplate = os.path.join(get_resource_path,'MNI152_T1_2mm_brain.nii.gz')
     MNItemplatehasskull = os.path.join(get_resource_path,'MNI152_T1_2mm.nii.gz')
     bet_ants_template = os.path.join(get_resource_path,'OASIS_template.nii.gz')
@@ -571,7 +580,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
 
     ###################################
     ### DATA INPUT ###
-    ################################### 
+    ###################################
     #Create a datagrabber that takes a subid as input and creates func and struct dirs
     datasource = Node(DataGrabber(
         infields=['subject_id'],
@@ -582,7 +591,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     datasource.inputs.template = '*'
     datasource.inputs.sort_filelist = True
     datasource.inputs.field_template = {'struct': '%s/T1.nii',
-                                        'func': '%s/*ep*.nii'} 
+                                        'func': '%s/*ep*.nii'}
     datasource.inputs.template_args = {'struct' :[['subject_id']],
                                        'func': [['subject_id']]}
 
@@ -614,8 +623,8 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     #For coregistration after realignment
     mean_epi = Node(MeanImage(),name='mean_epi')
     mean_epi.inputs.dimension = 'T'
-    
-    #For after normalization is done to plot checks 
+
+    #For after normalization is done to plot checks
     mean_norm_epi = Node(MeanImage(),name='mean_norm_epi')
     mean_norm_epi.inputs.dimension = 'T'
 
@@ -648,7 +657,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
 
     ###################################
     ### COREGISTRATION ###
-    ################################### 
+    ###################################
     coregistration = Node(Registration(), name='coregistration')
     coregistration.inputs.float = False
     coregistration.inputs.output_transform_prefix = "meanEpi2highres"
@@ -670,15 +679,15 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     coregistration.inputs.sigma_units = ['mm']
     coregistration.inputs.shrink_factors = [[8,4,2,1]]
     coregistration.inputs.use_estimate_learning_rate_once = [True]
-    coregistration.inputs.use_histogram_matching = [False] 
-    coregistration.inputs.initial_moving_transform_com = True 
+    coregistration.inputs.use_histogram_matching = [False]
+    coregistration.inputs.initial_moving_transform_com = True
     coregistration.inputs.output_warped_image = True
-    coregistration.inputs.winsorize_lower_quantile = 0.01 
+    coregistration.inputs.winsorize_lower_quantile = 0.01
     coregistration.inputs.winsorize_upper_quantile = 0.99
 
     ###################################
     ### NORMALIZATION ###
-    ################################### 
+    ###################################
     #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
     normalization = Node(Registration(),name='normalization')
     normalization.inputs.float = False
@@ -714,11 +723,11 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     normalization.inputs.winsorize_lower_quantile=0.005
     normalization.inputs.winsorize_upper_quantile=0.995
     normalization.inputs.write_composite_transform=True
-    
+
     ###################################
     ### APPLY TRANSFORMS AND SMOOTH ###
     ###################################
-    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation. 
+    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation.
 
     merge_transforms = Node(Merge(2), iterfield=['in2'], name ='merge_transforms')
 
@@ -760,7 +769,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     ###################################
     workflow = Workflow(name='Preprocessing')
     workflow.base_dir = os.path.join(base_dir,subject_id)
-    
+
     workflow.connect([
         (func_scans, trim, [('scan','in_file')]),
         (trim, realign_fsl, [('out_file','in_file')]),
@@ -791,7 +800,7 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
         (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
         (make_cov, datasink, [('covariates','functional.@covariates')]),
         (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
-        (normalization, datasink, [('warped_image','structural.@normalize')])         
+        (normalization, datasink, [('warped_image','structural.@normalize')])
     ])
 
     if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
@@ -800,10 +809,10 @@ def TV_Preproc_Pipeline(base_dir=None, output_dir=None, resources_dir=None, subj
     return workflow
 
 def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, smoothingKernel=4):
-    
-    """ 
+
+    """
     Create a nipype preprocessing workflow to analyze data from the scanParams testing acquisitions.
-    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS 
+    THIS IS DESIGNED TO BE RUN IN A DOCKER CONTAINER WITH FSL AND ANTS
     Pre-processing steps include:
     Realignment/Motion Correction (fsl)
     Artifact Detection (nipype)
@@ -817,7 +826,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     Makes 3 design matrices: standard block design (Right, Left), "mvpa" design (R1, R2, R3, L1, L2,L3), contrast block (R-L)
     Fits 3 first level models (REQUIRES NLTOOLS!)
 
-    Args: 
+    Args:
         base_dir: path to raw data folder with subjects listed as sub-folders
         output_dir: path where final outputted files and figures should go
         resources_dir: path where template files for MNI and ANTs live
@@ -832,10 +841,10 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     matplotlib.use('Agg')
     from nipype.interfaces.io import DataSink, DataGrabber
     from nipype.interfaces.utility import Merge, IdentityInterface, Function
-    from nipype.pipeline.engine import Node, Workflow 
+    from nipype.pipeline.engine import Node, Workflow
     from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates, Build_Xmat, GLM
     from cosanlab_preproc.utils import get_resource_path
-    from nipype.interfaces.nipy.preprocess import ComputeMask 
+    from nipype.interfaces.nipy.preprocess import ComputeMask
     from nipype.algorithms.rapidart import ArtifactDetect
     from nipype.interfaces.ants.segmentation import BrainExtraction
     from nipype.interfaces.ants import Registration, ApplyTransforms
@@ -845,7 +854,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### GLOBALS, PATHS ###
-    ################################### 
+    ###################################
     MNItemplate = os.path.join(get_resource_path(),'MNI152_T1_2mm_brain.nii.gz')
     MNItemplatehasskull = os.path.join(get_resource_path(),'MNI152_T1_2mm.nii.gz')
     bet_ants_template = os.path.join(get_resource_path(),'OASIS_template.nii.gz')
@@ -855,7 +864,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### DATA INPUT ###
-    ################################### 
+    ###################################
     #Create a datagrabber that takes a subid as input and creates func and struct dirs
     datasource = Node(DataGrabber(
         infields=['subject_id'],
@@ -866,7 +875,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     datasource.inputs.template = '*'
     datasource.inputs.sort_filelist = True
     datasource.inputs.field_template = {'struct': '%s/T1.nii.gz',
-                                        'func': '%s/*mm.nii.gz'} 
+                                        'func': '%s/*mm.nii.gz'}
     datasource.inputs.template_args = {'struct' :[['subject_id']],
                                        'func': [['subject_id']]}
 
@@ -877,7 +886,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### TR GRABBER ###
-    ################################### 
+    ###################################
     def getTR(fName):
         '''
         Gets TR length of scan by reading in the nifti header.
@@ -893,7 +902,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### ONSETS GRABBER ###
-    ################################### 
+    ###################################
     def getOnsets(fName):
         '''
         Gets onsets txt file given path to a .nii.gz file.
@@ -926,8 +935,8 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     #For coregistration after realignment
     mean_epi = Node(MeanImage(),name='mean_epi')
     mean_epi.inputs.dimension = 'T'
-    
-    #For after normalization is done to plot checks 
+
+    #For after normalization is done to plot checks
     mean_norm_epi = Node(MeanImage(),name='mean_norm_epi')
     mean_norm_epi.inputs.dimension = 'T'
 
@@ -961,7 +970,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### COREGISTRATION ###
-    ################################### 
+    ###################################
     coregistration = Node(Registration(), name='coregistration')
     coregistration.inputs.float = False
     coregistration.inputs.output_transform_prefix = "meanEpi2highres"
@@ -983,15 +992,15 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     coregistration.inputs.sigma_units = ['mm']
     coregistration.inputs.shrink_factors = [[8,4,2,1]]
     coregistration.inputs.use_estimate_learning_rate_once = [True]
-    coregistration.inputs.use_histogram_matching = [False] 
-    coregistration.inputs.initial_moving_transform_com = True 
+    coregistration.inputs.use_histogram_matching = [False]
+    coregistration.inputs.initial_moving_transform_com = True
     coregistration.inputs.output_warped_image = True
-    coregistration.inputs.winsorize_lower_quantile = 0.01 
+    coregistration.inputs.winsorize_lower_quantile = 0.01
     coregistration.inputs.winsorize_upper_quantile = 0.99
 
     ###################################
     ### NORMALIZATION ###
-    ################################### 
+    ###################################
     #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
     normalization = Node(Registration(),name='normalization')
     normalization.inputs.float = False
@@ -1027,11 +1036,11 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     normalization.inputs.winsorize_lower_quantile=0.005
     normalization.inputs.winsorize_upper_quantile=0.995
     normalization.inputs.write_composite_transform=True
-    
+
     ###################################
     ### APPLY TRANSFORMS AND SMOOTH ###
     ###################################
-    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation. 
+    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation.
 
     merge_transforms = Node(Merge(2), iterfield=['in2'], name ='merge_transforms')
 
@@ -1070,7 +1079,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### CONTRAST Xmat ###
-    ################################### 
+    ###################################
     def buildContrastXmat(covFile,onsetsFile,TR):
 
         import matplotlib
@@ -1086,9 +1095,9 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         delim = '\t'
         hrf = glover_hrf(tr = TR,oversampling=1)
 
-        #Just a single file 
+        #Just a single file
         C = pd.read_csv(covFile)
-        C['intercept'] = 1  
+        C['intercept'] = 1
         O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
         if header is None:
             if isinstance(O.iloc[0,0],str):
@@ -1106,7 +1115,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
                 X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,'contrast'] = 1
             else:
                 X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,'contrast'] = -1
-                
+
         X['contrast']= np.convolve(hrf,X.contrast.values)[:X.shape[0]]
         X = pd.concat([X,C],axis=1)
         X = X.fillna(0)
@@ -1130,7 +1139,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
         xmatFile = 'Xmat_con.csv'
         X.to_csv(xmatFile,index=False)
-        
+
         return plotFile, xmatFile
 
     build_xmat_con = Node(interface=Function(input_names=['covFile','onsetsFile','TR'],
@@ -1141,7 +1150,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### MVPA Xmat ###
-    ################################### 
+    ###################################
     def buildMVPAXmat(covFile,onsetsFile,TR):
 
         import matplotlib
@@ -1157,9 +1166,9 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         delim = '\t'
         hrf = glover_hrf(tr = TR,oversampling=1)
 
-        #Just a single file 
+        #Just a single file
         C = pd.read_csv(covFile)
-        C['intercept'] = 1  
+        C['intercept'] = 1
         O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
         if header is None:
             if isinstance(O.iloc[0,0],str):
@@ -1213,7 +1222,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
         xmatFile = 'Xmat_mvpa.csv'
         X.to_csv(xmatFile,index=False)
-        
+
         return plotFile, xmatFile
 
     build_xmat_mvpa = Node(interface=Function(input_names=['covFile','onsetsFile','TR'],
@@ -1223,24 +1232,24 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
 
     ###################################
     ### GLM CONTRAST###
-    ################################### 
+    ###################################
     glm = Node(GLM(),name="glm")
     glm.inputs.detrend = True
 
     ###################################
     ### GLM CONTRAST###
-    ################################### 
+    ###################################
     glm_con = Node(GLM(),name="glm_con")
     glm_con.inputs.detrend = True
     glm_con.inputs.prependName = 'con'
 
     ###################################
     ### GLM MVPA###
-    ################################### 
+    ###################################
     glm_mvpa = Node(GLM(),name="glm_mvpa")
     glm_mvpa.inputs.detrend = True
     glm_mvpa.inputs.prependName = 'mvpa'
-    
+
     ###################################
     ### DATA OUTPUT ###
     ###################################
@@ -1275,7 +1284,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     ###################################
     workflow = Workflow(name='Preprocessing')
     workflow.base_dir = os.path.join(base_dir,subject_id)
-    
+
     workflow.connect([
         (func_scans, realign_fsl, [('scan','in_file')]),
         (func_scans, get_tr, [('scan','fName')]),
@@ -1309,7 +1318,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         (glm, datasink, [('betaImage','glm.@beta'),
                          ('tstatImage','glm.@tstat'),
                          ('pvalImage','glm.@pval')]),
-        
+
         (get_tr, build_xmat_con, [('TR','TR')]),
         (get_onsets, build_xmat_con, [('onsetsFile', 'onsetsFile')]),
         (make_cov, build_xmat_con, [('covariates','covFile')]),
@@ -1320,7 +1329,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         (glm_con, datasink, [('betaImage','glm.@betacon'),
                          ('tstatImage','glm.@tstatcon'),
                          ('pvalImage','glm.@pvalcon')]),
-        
+
         (get_tr, build_xmat_mvpa, [('TR','TR')]),
         (get_onsets, build_xmat_mvpa, [('onsetsFile', 'onsetsFile')]),
         (make_cov, build_xmat_mvpa, [('covariates','covFile')]),
@@ -1331,8 +1340,8 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         (glm_mvpa, datasink, [('betaImage','glm.@betamvpa'),
                          ('tstatImage','glm.@tstatmvpa'),
                          ('pvalImage','glm.@pvalmvpa')]),
-        
-        
+
+
         (apply_transforms, datasink, [('output_image', 'functional.@normalize')]),
         (apply_transforms, smooth, [('output_image','in_file')]),
         (smooth, datasink, [('smoothed_file','functional.@smooth')]),
@@ -1341,7 +1350,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
         (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
         (make_cov, datasink, [('covariates','functional.@covariates')]),
         (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
-        (normalization, datasink, [('warped_image','structural.@normalize')])         
+        (normalization, datasink, [('warped_image','structural.@normalize')])
     ])
 
 
@@ -1376,8 +1385,8 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
  #        (build_xmat, datasink, [('xmat', 'functional.@xmat'),
  #                              ('plot', 'functional.@xmatplot')]),
  #        (build_xmat, glm, [('xmat','xmatFile')]),
-        
-        
+
+
  #        (get_tr, build_xmat_con, [('TR','TR')]),
  #        (get_onsets, build_xmat_con, [('onsetsFile', 'onsetsFile')]),
  #        (make_cov, build_xmat_con, [('covariates','covFile')]),
@@ -1396,7 +1405,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
  #        (glm_mvpa, datasink, [('betaImage','glm.@beta'),
  #                       ('tstatImage','glm.@tstat'),
  #                       ('pvalImage','glm.@pval')]),
-        
+
  #        (smooth, glm, [('smoothed_file','epiFile')]),
  #        (glm, datasink, [('betaImage','glm.@beta'),
  #                       ('tstatImage','glm.@tstat'),
@@ -1409,7 +1418,7 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
  #        (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
  #        (make_cov, datasink, [('covariates','functional.@covariates')]),
  #        (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
- #        (normalization, datasink, [('warped_image','structural.@normalize')])         
+ #        (normalization, datasink, [('warped_image','structural.@normalize')])
  #    ])
 
     if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
@@ -1418,8 +1427,8 @@ def ScanParams_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None,
     return workflow
 
 def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
-    
-    """ 
+
+    """
     Create a nipype preprocessing workflow to analyze data from the Pinel localizer task.
     Pre-processing steps include:
     Distortion correction (fsl)
@@ -1433,7 +1442,7 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
         - Quality check of mean signal, sd and frame differences
         - Normalization check
 
-    Args: 
+    Args:
         base_dir: path to raw data folder with subjects listed as sub-folders
         output_dir: path where final outputted files and figures should go
         resources_dir: path where template files for MNI and ANTs live
@@ -1449,11 +1458,11 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     import nibabel as nib
     from nipype.interfaces.io import DataSink, DataGrabber
     from nipype.interfaces.utility import Merge, IdentityInterface, Function
-    from nipype.pipeline.engine import Node, Workflow 
+    from nipype.pipeline.engine import Node, Workflow
     from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates, Down_Sample_Precision
     from cosanlab_preproc.utils import get_resource_path
     from bids.grabbids import BIDSLayout
-    from nipype.interfaces.nipy.preprocess import ComputeMask 
+    from nipype.interfaces.nipy.preprocess import ComputeMask
     from nipype.algorithms.rapidart import ArtifactDetect
     from nipype.interfaces.ants.segmentation import BrainExtraction
     from nipype.interfaces.ants import Registration, ApplyTransforms
@@ -1465,7 +1474,7 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
 
     ###################################
     ### GLOBALS, PATHS ###
-    ################################### 
+    ###################################
     MNItemplate = os.path.join(get_resource_path(),'MNI152_T1_2mm_brain.nii.gz')
     MNItemplatehasskull = os.path.join(get_resource_path(),'MNI152_T1_2mm.nii.gz')
     bet_ants_template = os.path.join(get_resource_path(),'OASIS_template.nii.gz')
@@ -1478,12 +1487,12 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
             'p1Xs8X3mmXsl48Xap',
             ]
     encoding_file = os.path.join(base_dir,'encoding_file.txt')
-        
+
     ###################################
     ### DATA INPUT ###
     ###################################
     layout = BIDSLayout(base_dir)
-    
+
     #BIDS needs the 'sub' part of sid removed
     subId = subject_id[4:]
     #Straight up grab the single anat nifti
@@ -1534,8 +1543,8 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     #For coregistration after realignment
     mean_epi = Node(MeanImage(),name='mean_epi')
     mean_epi.inputs.dimension = 'T'
-    
-    #For after normalization is done to plot checks 
+
+    #For after normalization is done to plot checks
     mean_norm_epi = Node(MeanImage(),name='mean_norm_epi')
     mean_norm_epi.inputs.dimension = 'T'
 
@@ -1570,7 +1579,7 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
 
     ###################################
     ### COREGISTRATION ###
-    ################################### 
+    ###################################
     coregistration = Node(Registration(), name='coregistration')
     coregistration.inputs.float = False
     coregistration.inputs.output_transform_prefix = "meanEpi2highres"
@@ -1592,15 +1601,15 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     coregistration.inputs.sigma_units = ['mm']
     coregistration.inputs.shrink_factors = [[8,4,2,1]]
     coregistration.inputs.use_estimate_learning_rate_once = [True]
-    coregistration.inputs.use_histogram_matching = [False] 
-    coregistration.inputs.initial_moving_transform_com = True 
+    coregistration.inputs.use_histogram_matching = [False]
+    coregistration.inputs.initial_moving_transform_com = True
     coregistration.inputs.output_warped_image = True
-    coregistration.inputs.winsorize_lower_quantile = 0.01 
+    coregistration.inputs.winsorize_lower_quantile = 0.01
     coregistration.inputs.winsorize_upper_quantile = 0.99
 
     ###################################
     ### NORMALIZATION ###
-    ################################### 
+    ###################################
     #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
     normalization = Node(Registration(),name='normalization')
     normalization.inputs.float = False
@@ -1636,11 +1645,11 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     normalization.inputs.winsorize_lower_quantile=0.005
     normalization.inputs.winsorize_upper_quantile=0.995
     normalization.inputs.write_composite_transform=True
-    
+
     ###################################
     ### APPLY TRANSFORMS AND SMOOTH ###
     ###################################
-    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation. 
+    #The nodes above compute the required transformation matrices but don't actually apply them to the data. Here we're merging both matrices and applying them in a single transformation step to reduce the amount of data interpolation.
 
     merge_transforms = Node(Merge(2), iterfield=['in2'], name ='merge_transforms')
 
@@ -1652,13 +1661,13 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     apply_transforms.inputs.interpolation = 'BSpline'
     apply_transforms.inputs.invert_transform_flags = [False, False]
     apply_transforms.inputs.terminal_output = 'stream'
-        
+
     apply_transforms.inputs.reference_image = MNItemplate
 
     #Use FSL for smoothing
     smooth = Node(Smooth(),name='smooth')
     smooth.inputs.sigma = 6.0
-    
+
     #####################################
     ### DOWNSAMPLE PRECISION ###
     #####################################
@@ -1673,7 +1682,7 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     plot_normalization_check = Node(Plot_Coregistration_Montage(),name="plot_normalization_check")
     plot_normalization_check.inputs.canonical_img = MNItemplatehasskull
 
-        
+
     ###################################
     ### DATA OUTPUT ###
     ###################################
@@ -1691,7 +1700,7 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
     ###################################
     workflow = Workflow(name='Preprocessing')
     workflow.base_dir = os.path.join(base_dir,subject_id)
-    
+
     workflow.connect([
         (merge_discorr, topup, [('merged_file','in_file')]),
         (topup, apply_topup,[('out_fieldcoef','in_topup_fieldcoef'),
@@ -1724,10 +1733,10 @@ def Pinel_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None):
         (plot_normalization_check, datasink, [('plot','functional.@plot_normalization')]),
         (make_cov, datasink, [('covariates','functional.@covariates')]),
         (brain_extraction_ants, datasink, [('BrainExtractionBrain','structural.@struct')]),
-        (normalization, datasink, [('warped_image','structural.@normalize')])  
+        (normalization, datasink, [('warped_image','structural.@normalize')])
         ])
-    
+
     if not os.path.exists(os.path.join(output_dir,'Preprocsteps.png')):
         workflow.write_graph(dotfilename=os.path.join(output_dir,'Preprocsteps'),format='png')
-    
+
         return workflow
