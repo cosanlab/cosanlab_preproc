@@ -279,7 +279,7 @@ class Down_Sample_Precision(BaseInterface):
 		outputs["out_file"] = os.path.abspath(self._out_file)
 		return outputs
 
-class Create_Covariates_InputSpec(TraitedSpec):	
+class Create_Covariates_InputSpec(TraitedSpec):
 	realignment_parameters = File(exists=True, mandatory=True)
 	spike_id = File(exists=True, mandatory=True)
 

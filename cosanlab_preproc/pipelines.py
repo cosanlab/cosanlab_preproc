@@ -166,7 +166,7 @@ def Couple_Preproc_Pipeline(base_dir=None, output_dir=None, subject_id=None, spm
     from nipype.algorithms.misc import Gunzip
     from nipype.interfaces.nipy.preprocess import ComputeMask
     import nipype.interfaces.matlab as mlab
-    from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates, Build_Xmat, GLM
+    from cosanlab_preproc.interfaces import Plot_Coregistration_Montage, Plot_Quality_Control, Plot_Realignment_Parameters, Create_Covariates
     from cosanlab_preproc.utils import get_resource_path, get_vox_dims, get_n_volumes
     import os
     import glob
