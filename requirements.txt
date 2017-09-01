@@ -6,4 +6,5 @@ numpy>=1.9
 seaborn>=0.7.0
 matplotlib
 nipy >=0.4.0
-pybids >= 0.1
+pybids >=0.1
+nipype >=0.13.1
