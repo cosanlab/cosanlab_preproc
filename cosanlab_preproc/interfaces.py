@@ -172,7 +172,7 @@ class Plot_Quality_Control(BaseInterface):
     def _list_outputs(self):
     	outputs = self._outputs().get()
     	outputs["plot"] = os.path.abspath(self._plot)
-        outputs["fd_outliers"] = os.path.abspath(self._fd_outliers)
+        outputs["fd_outliers"] = self._fd_outliers
         return outputs
 
 class Plot_Realignment_Parameters_InputSpec(TraitedSpec):
