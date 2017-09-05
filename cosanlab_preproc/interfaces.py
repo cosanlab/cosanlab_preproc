@@ -124,7 +124,10 @@ class Plot_Quality_Control(BaseInterface):
     	frame_outlier = np.append(np.where(frame_diff>np.mean(frame_diff)+np.std(frame_diff)*self.inputs.frame_outlier_cutoff),
     	                           np.where(frame_diff<np.mean(frame_diff)-np.std(frame_diff)*self.inputs.frame_outlier_cutoff))
 
-    	title = self.inputs.title
+        fd_file_name = "fd_outlier.txt"
+        np.savetxt(fd_file_name,frame_outlier)
+
+        title = self.inputs.title
 
     	if title != "":
     		filename = title.replace(" ", "_")+".pdf"
@@ -164,7 +167,7 @@ class Plot_Quality_Control(BaseInterface):
     	del f
 
         self._plot = filename
-        self._fd_outliers = frame_outlier
+        self._fd_outliers = fd_file_name
 
         runtime.returncode=0
         return runtime
@@ -172,7 +175,7 @@ class Plot_Quality_Control(BaseInterface):
     def _list_outputs(self):
     	outputs = self._outputs().get()
     	outputs["plot"] = os.path.abspath(self._plot)
-        outputs["fd_outliers"] = self._fd_outliers
+        outputs["fd_outliers"] = os.path.abspath(self._fd_outliers)
         return outputs
 
 class Plot_Realignment_Parameters_InputSpec(TraitedSpec):
