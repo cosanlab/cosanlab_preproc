@@ -349,12 +349,12 @@ class Create_Covariates(BaseInterface):
     	#build spike regressors
     	for i,loc in enumerate(spike['Spikes']):
     		ra['spike' + str(i+1)] = 0
-    		ra['spike' + str(i+1)].iloc[loc] = 1
+    		ra['spike' + str(i+1)].iloc[int(loc)] = 1
 
         #build FD regressors
     	for i,loc in enumerate(fd['FDs']):
     		ra['FD' + str(i+1)] = 0
-    		ra['FD' + str(i+1)].iloc[loc] = 1
+    		ra['FD' + str(i+1)].iloc[int(loc)] = 1
 
     	filename = 'covariates.csv'
     	ra.to_csv(filename, index=False) #write out to file
