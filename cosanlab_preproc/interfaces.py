@@ -60,11 +60,21 @@ class Plot_Coregistration_Montage(BaseInterface):
     	# fig.close()
 
     	#JC: Added Saggital slice plotting
-    	f, (ax1, ax2) = plt.subplots(2,figsize=(15,8))
-    	fig = plotting.plot_anat(mean_wraimg, title="sag: wrafunc & canonical single subject", cut_coords=range(-30, 20, 8), display_mode='x',axes=ax1)
-    	fig.add_edges(canonical_img)
-    	fig = plotting.plot_anat(mean_wraimg, title="axial: wrafunc & canonical single subject", cut_coords=range(-40, 40, 10), display_mode='z',axes=ax2)
-    	fig.add_edges(canonical_img)
+        f, axes = plt.subplots(6,figsize=(15,20))
+        titles = ["sag: wrafunc & canonical single subject","sag: wrafunc & canonical single subject",
+        "axial: wrafunc & canonical single subject","axial: wrafunc & canonical single subject",
+        "coronal: wrafunc & canonical single subject","coronal: wrafunc & canonical single subject"
+        ]
+        cut_coords = [range(-50, 0, 10), range(0, 51, 10),range(-30, 15, 9),range(0, 61, 10), range(-60, 0, 12), range(0, 31, 6)  ]
+        display_modes = ['x','x','z','z','y','y']
+        for i, ax in enumerate(axes): 
+            fig = plotting.plot_anat(mean_wraimg, title = titles[i], cut_coords = cut_coords[i], display_mode =display_modes[i],axes = ax)
+            fig.add_edges(canonical_img)
+    	# f, (ax1, ax2) = plt.subplots(2,figsize=(15,8))        
+    	# fig = plotting.plot_anat(mean_wraimg, title="sag: wrafunc & canonical single subject", cut_coords=range(-30, 20, 8), display_mode='x',axes=ax1)
+    	# fig.add_edges(canonical_img)
+    	# fig = plotting.plot_anat(mean_wraimg, title="axial: wrafunc & canonical single subject", cut_coords=range(-40, 40, 10), display_mode='z',axes=ax2)
+    	# fig.add_edges(canonical_img)
     	f.savefig(filename)
     	plt.close(f) #f.close()
     	plt.close()
