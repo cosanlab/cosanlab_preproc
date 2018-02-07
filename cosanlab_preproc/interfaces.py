@@ -198,7 +198,20 @@ class Plot_Realignment_Parameters_OutputSpec(TraitedSpec):
 
 
 class Plot_Realignment_Parameters(BaseInterface):
-    # This function is adapted from Chris Gorgolewski and creates a figure of the realignment parameters
+
+    """
+        Create a plot of realignment parameters.
+        *NOTE*, this function assumes the output of FSL's McFlirt which returns Rotation X, Rotation Y, Rotation Z (all in rads), Translation X, Translation Y, Translation Z (all in mm).
+        For reference of this FSL mailing list:
+        https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
+        And nipype.utils.normalize_mc_params:
+        https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
+
+        To make plots on the same scale we convert rotations to arc-length in mm using assuming a 50mm sphere which is approximately the mean distance from the cerebral cortex to the cetner of the head (Power et al, 2012, NeuroImage). This conversion is not applied to any covariate files generated and is purely for visualization.
+
+        Formuala: arc-length (mm) = rotation (rad) * 50mm
+
+    """
 
     input_spec = Plot_Realignment_Parameters_InputSpec
     output_spec = Plot_Realignment_Parameters_OutputSpec
@@ -213,23 +226,24 @@ class Plot_Realignment_Parameters(BaseInterface):
         F = plt.figure(figsize=(8.3, 11.7))
         F.text(0.5, 0.96, self.inputs.title, horizontalalignment='center')
         ax1 = plt.subplot2grid((2, 2), (0, 0), colspan=2)
-        handles = ax1.plot(realignment_parameters[:, 0:3])
-        ax1.legend(handles, ["x translation",
-                             "y translation", "z translation"], loc=0)
-        ax1.set_xlabel("image #")
-        ax1.set_ylabel("mm")
+        # Plot x,y,z first
+        handles = ax1.plot(realignment_parameters[:, 3:6])
+        ax1.legend(handles, ["x",
+                             "y", "z"], loc=0)
+        ax1.set_xlabel("TR")
+        ax1.set_ylabel("Translation (mm)")
         ax1.set_xlim((0, realignment_parameters.shape[0] - 1))
-        ax1.set_ylim(bottom=realignment_parameters[:, 0:3].min(
-        ), top=realignment_parameters[:, 0:3].max())
+        # Fix y-axis to-3mm to 3mm
+        ax1.set_ylim(bottom=-3.0,top=3.0)
 
         ax2 = plt.subplot2grid((2, 2), (1, 0), colspan=2)
-        handles = ax2.plot(realignment_parameters[:, 3:6] * 180.0 / np.pi)
+        # Plot pitch, roll, yaw second
+        handles = ax2.plot(realignment_parameters[:, 0:3] * 50)
         ax2.legend(handles, ["pitch", "roll", "yaw"], loc=0)
-        ax2.set_xlabel("image #")
-        ax2.set_ylabel("degrees")
+        ax2.set_xlabel("TR")
+        ax2.set_ylabel("Rotation arc-length (mm)")
         ax2.set_xlim((0, realignment_parameters.shape[0] - 1))
-        ax2.set_ylim(bottom=(realignment_parameters[:, 3:6] * 180.0 / np.pi).min(
-        ), top=(realignment_parameters[:, 3:6] * 180.0 / np.pi).max())
+        ax2.set_ylim(bottom=-3.0, top=3.0)
 
         if isdefined(self.inputs.outlier_files):
             try:
