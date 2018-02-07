@@ -9,7 +9,7 @@ Classes for various nipype interfaces
 '''
 
 __all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters',
-           'Create_Covariates', 'Down_Sample_Precision', 'Low_Pass_Filter']
+           'Create_Covariates', 'Down_Sample_Precision', 'Low_Pass_Filter', 'CreateEncodingFile']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -395,189 +395,49 @@ class Create_Covariates(BaseInterface):
         outputs["covariates"] = os.path.abspath(self._covariates)
         return outputs
 
-# class Build_Xmat_InputSpec(TraitedSpec):
-# 	onsetsFile = File(exists=True, mandatory=True)
-# 	covFile = File(exists=True, mandatory=True)
-# 	TR = traits.Float(desc='TR length',mandatory=True)
-# 	dur = traits.Float(desc='stimulus duration in s',mandatory=True)
-# 	header = traits.Bool(desc='whether onsets file has a header or not',default=True)
-# 	delim = traits.Str(desc='delimiter used in onsets file',default=',')
-# 	fillNa = traits.Bool(desc='Fill nans with 0',default=True)
-#
-# class Build_Xmat_OutputSpec(TraitedSpec):
-# 	xmat = File(exists=True)
-# 	plot = File(exists=True)
-#
-# class Build_Xmat(BaseInterface):
-# 	input_spec = Build_Xmat_InputSpec
-# 	output_spec = Build_Xmat_OutputSpec
-#
-# 	def _run_interface(self, runtime):
-# 		import matplotlib
-# 		matplotlib.use('Agg')
-# 		import pandas as pd
-# 		import numpy as np
-# 		import seaborn as sns
-# 		from nipy.modalities.fmri.hemodynamic_models import glover_hrf
-#
-# 		covFile = self.inputs.covFile
-# 		onsetsFile =  self.inputs.onsetsFile
-# 		TR = float(self.inputs.TR)
-# 		dur = float(self.inputs.dur)
-# 		fillNa = self.inputs.fillNa
-# 		header = self.inputs.header
-# 		if not self.inputs.header:
-# 			header = None
-# 		else:
-# 			header = 0
-# 		delim = self.inputs.delim
-#
-# 		hrf = glover_hrf(tr = TR,oversampling=1)
-#
-# 		#Check if we're dealing with multiple files that need to be concat
-# 		assert type(covFile) == type(onsetsFile), "Covariates and onsets must both be a single a file or list of files!"
-#
-# 		#COVARIATES
-#
-# 		if isinstance(covFile,list):
-# 	 	    covs = []
-# 		    for i, f in enumerate(covFile):
-# 		        F = pd.read_csv(f)
-# 		        F.columns = [str(i)+'_' + c if 'spike' in c else c for c in F.columns]
-# 		        covs.append(F)
-# 		    C = pd.concat(covs,axis=0,ignore_index=True)
-#
-# 		    #Create runwise dummy coded regressors
-# 		    numRuns = len(covs)
-# 		    numTrs = C.shape[0]/numRuns
-# 		    runDummies = np.zeros([C.shape[0],len(covs)])
-#
-# 		    for runCount in xrange(len(covs)):
-# 		        runDummies[runCount*numTrs:runCount*numTrs+numTrs,runCount] = 1
-# 		    runDummies = pd.DataFrame(runDummies,columns = ['run'+str(elem) for elem in xrange(len(covs))])
-#
-# 		    C = pd.concat([C,runDummies],axis=1)
-#
-# 		    #ONSETS
-# 		    #Load onsets, convert to TRs, get unique stimNames
-# 		    onsets = []
-# 		    for i, f in enumerate(onsetsFile):
-# 		        F = pd.read_csv(f,header=header,delimiter=delim)
-# 		        if header is None:
-# 		        	if isinstance(F.iloc[0,0],str):
-# 		        		F.columns = ['Stim','Onset']
-# 		        	else:
-# 		        		F.columns = ['Onset','Stim']
-# 		        F['Onset'] = F['Onset'].apply(lambda x: int(np.floor(x/TR)))
-# 		        F['Onset'] += numTrs*i
-# 		        onsets.append(F)
-# 		    O = pd.concat(onsets,axis=0,ignore_index=True)
-#
-# 		else:
-# 		    #Just a single file
-# 		    C = pd.read_csv(covFile)
-# 		    C['intercept'] = 1
-# 		    O = pd.read_csv(onsetsFile,header=header,delimiter=delim)
-# 		    if header is None:
-# 	        	if isinstance(O.iloc[0,0],str):
-# 	        		O.columns = ['Stim','Onset']
-# 	        	else:
-# 	        		O.columns = ['Onset','Stim']
-# 		    O['Onset'] = O['Onset'].apply(lambda x: int(np.floor(x/TR)))
-# 		    numRuns = 1
-#
-# 		#Build dummy codes
-# 		#Subtract one from onsets row, because pd DFs are 0-indexed but TRs are 1-indexed
-# 		X = pd.DataFrame(columns=O.Stim.unique(),data=np.zeros([C.shape[0],len(O.Stim.unique())]))
-# 		for i, row in O.iterrows():
-# 			#do dur-1 for slicing because .ix includes the last element of the slice
-# 		    X.ix[row['Onset']-1:(row['Onset']-1)+dur-1,row['Stim']] = 1
-# 		X = X.reindex_axis(sorted(X.columns), axis=1)
-#
-# 		#Convolve with hrf, concat with covs
-# 		for i in xrange(X.shape[1]):
-# 		    X.iloc[:,i] = np.convolve(hrf,X.iloc[:,i])[:X.shape[0]]
-# 		X = pd.concat([X,C],axis=1)
-#
-# 		if fillNa:
-# 			X = X.fillna(0)
-#
-# 		matplotlib.rcParams['axes.edgecolor'] = 'black'
-# 		matplotlib.rcParams['axes.linewidth'] = 2
-# 		fig, ax = plt.subplots(1,figsize=(12,10))
-#
-# 		ax = sns.heatmap(X,cmap='gray', cbar=False,ax=ax);
-#
-# 		for _, spine in ax.spines.items():
-# 			spine.set_visible(True)
-# 		for i, label in enumerate(ax.get_yticklabels()):
-# 			if i > 0 and i < X.shape[0]:
-# 				label.set_visible(False)
-#
-# 		plotFile = 'Xmat.png'
-# 		fig.savefig(plotFile)
-# 		plt.close(fig)
-# 		del fig
-# 		self._plot = plotFile
-#
-# 		filename = 'Xmat.csv'
-# 		X.to_csv(filename,index=False)
-# 		self._xmat = filename
-#
-# 		runtime.returncode=0
-# 		return runtime
-#
-# 	def _list_outputs(self):
-# 		outputs = self._outputs().get()
-# 		outputs["xmat"] = os.path.abspath(self._xmat)
-# 		outputs["plot"] = os.path.abspath(self._plot)
-# 		return outputs
-#
-# class GLM_InputSpec(TraitedSpec):
-# 	epiFile = File(exists=True,mandatory=True)
-# 	xmatFile = File(exists=True,mandatory=True)
-# 	detrend = traits.Bool(desc='whether to perform linear detrending',default=True)
-# 	prependName = traits.Str(default_value='')
-#
-#
-# class GLM_OutputSpec(TraitedSpec):
-# 	betaImage = File(exists=True)
-# 	tstatImage = File(exists=True)
-# 	pvalImage = File(exists=True)
-#
-# class GLM(BaseInterface):
-# 	input_spec = GLM_InputSpec
-# 	output_spec = GLM_OutputSpec
-#
-# 	def _run_interface(self,runtime):
-#
-# 		xmat = pd.read_csv(self.inputs.xmatFile)
-# 		dat = Brain_Data(self.inputs.epiFile)
-# 		dat.X = xmat
-# 		if self.inputs.detrend:
-# 			detrended = dat.detrend()
-# 			out = detrended.regress()
-# 		else:
-# 			out = out.regress()
-#
-# 		betaFile = 'betas'+self.inputs.prependName+'.nii.gz'
-# 		tstatFile = 'tstats'+self.inputs.prependName+'.nii.gz'
-# 		pvalFile = 'pvals'+self.inputs.prependName+'.nii.gz'
-#
-# 		out['beta'].write(betaFile)
-# 		out['t'].write(tstatFile)
-# 		out['p'].write(pvalFile)
-#
-# 		self._beta = betaFile
-# 		self._tstat = tstatFile
-# 		self._pval = pvalFile
-#
-# 		runtime.returncode=0
-# 		return runtime
-#
-# 	def _list_outputs(self):
-# 		outputs = self._outputs().get()
-# 		outputs["betaImage"] = os.path.abspath(self._beta)
-# 		outputs["tstatImage"] = os.path.abspath(self._tstat)
-# 		outputs["pvalImage"] = os.path.abspath(self._pval)
-# 		return outputs
+class CreateEncodingFileInputSpec(TraitedSpec):
+    fmaps = traits.List()
+    fmap_pes = traits.List()
+    totalReadoutTimes = traits.List()
+    measurements = traits.List()
+    file_name = traits.Str()
+
+class CreateEncodingFileOutputSpec(TraitedSpec):
+    encoding_file = traits.File()
+
+class CreateEncodingFile(BaseInterface):
+    """
+    CreateEncodingFile interface creates encoding file necessary for FSL TOPUP interface.
+    Args:
+        fmaps: list of fieldmap files (e.g., [AP.nii.gz, PA.nii.gz] )
+        fmap_pes: list of phase encoding directions for each file (e.g., [j-, j])
+        totalReadoutTimes = list of totalReadoutTimes for each file (e.g., [.0423, .0423])
+        measurements: list of number of measurements for each file (e.g., [2, 2])
+        file_name: string for file name of encoding file (e.g., encoding_file.txt)
+    Returns:
+        encoding_file: encoding file to be used with topup
+    """
+    input_spec = CreateEncodingFileInputSpec
+    output_spec = CreateEncodingFileOutputSpec
+
+    def _run_interface(self,runtime):
+        pe_to_encoding = {'i':'1 0 0','i-':'-1 0 0',
+         'j':'0 1 0','j-':'0 -1 0',
+         'k':'0 0 1','k-':'0 0 -1'}
+        file_name = os.path.join(os.path.split(self.inputs.fmaps[0])[0], self.inputs.file_name)
+        if os.path.isfile(file_name):
+            with open(file_name, 'w') as fp:
+                fp.write('')
+        # Create encoding file and save to file_name
+        for ix, fmap in enumerate(self.inputs.fmaps):
+            with open(file_name, 'a') as fp:
+                message = pe_to_encoding[self.inputs.fmap_pes[ix]]+' '+str(self.inputs.totalReadoutTimes[ix]) + '\n'
+                fp.write(message*self.inputs.measurements[ix])
+                print('wrote to file',file_name)
+        self._encoding_file = file_name
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs["encoding_file"] =os.path.abspath(self._encoding_file)
+        return outputs
