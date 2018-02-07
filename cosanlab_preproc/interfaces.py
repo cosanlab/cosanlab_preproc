@@ -188,7 +188,7 @@ class Plot_Quality_Control(BaseInterface):
 
 class Plot_Realignment_Parameters_InputSpec(TraitedSpec):
     realignment_parameters = File(exists=True, mandatory=True)
-    outlier_files = File(exists=True)
+    outliers = File(exists=True)
     title = traits.Str("Realignment parameters", usedefault=True)
     dpi = traits.Int(300, usedefault=True)
 
@@ -221,42 +221,52 @@ class Plot_Realignment_Parameters(BaseInterface):
         matplotlib.use('Agg')
         import pylab as plt
         realignment_parameters = np.loadtxt(self.inputs.realignment_parameters)
+        realignment_parameter_diffs = np.abs(np.diff(realignment_parameters,axis=0))
+        outliers = np.loadtext(self.inputs.outliers)
+
         title = self.inputs.title
-
+        colspan = 2
+        loc = 9
+        realign_lims = (-2,2)
+        diff_lims = (-0.01,2)
         F = plt.figure(figsize=(8.3, 11.7))
-        F.text(0.5, 0.96, self.inputs.title, horizontalalignment='center')
-        ax1 = plt.subplot2grid((2, 2), (0, 0), colspan=2)
+        F.text(0.5, .97, title, horizontalalignment='center',fontsize=16)
+        F.text(0.5, .01, 'TR', horizontalalignment='center',fontsize=16)
+
         # Plot x,y,z first
+        ax1 = plt.subplot2grid((4, 2), (0, 0), colspan=colspan)
         handles = ax1.plot(realignment_parameters[:, 3:6])
-        ax1.legend(handles, ["x",
-                             "y", "z"], loc=0)
-        ax1.set_xlabel("TR")
-        ax1.set_ylabel("Translation (mm)")
-        ax1.set_xlim((0, realignment_parameters.shape[0] - 1))
-        # Fix y-axis to-3mm to 3mm
-        ax1.set_ylim(bottom=-3.0,top=3.0)
+        ax1.legend(handles, ["x","y", "z"], loc=loc, ncol=3)
+        ax1.set(ylabel="Translation (mm)",xticklabels=[],xlim=(0,realignment_parameters.shape[0]-1),ylim=(realign_lims))
+        ax1.tick_params(direction = 'in')
 
-        ax2 = plt.subplot2grid((2, 2), (1, 0), colspan=2)
         # Plot pitch, roll, yaw second
+        ax2 = plt.subplot2grid((4, 2), (1, 0), colspan=colspan)
         handles = ax2.plot(realignment_parameters[:, 0:3] * 50)
-        ax2.legend(handles, ["pitch", "roll", "yaw"], loc=0)
-        ax2.set_xlabel("TR")
-        ax2.set_ylabel("Rotation arc-length (mm)")
-        ax2.set_xlim((0, realignment_parameters.shape[0] - 1))
-        ax2.set_ylim(bottom=-3.0, top=3.0)
+        ax2.legend(handles, ["pitch", "roll", "yaw"], loc=loc, ncol=3)
+        ax2.set(ylabel="Rotation (mm)",xticklabels=[],xlim=(0,realignment_parameters.shape[0]-1),ylim=realign_lims)
+        ax2.tick_params(direction = 'in')
 
-        if isdefined(self.inputs.outlier_files):
-            try:
-                outliers = np.loadtxt(self.inputs.outlier_files)
-            except IOError as e:
-                if e.args[0] == "End-of-file reached before encountering data.":
-                    pass
-                else:
-                    raise
-            else:
-                if outliers.size > 0:
-                    ax1.vlines(outliers, ax1.get_ylim()[0], ax1.get_ylim()[1])
-                    ax2.vlines(outliers, ax2.get_ylim()[0], ax2.get_ylim()[1])
+        # Plot x,y,z diffs with rapidart third
+        ax3 = plt.subplot2grid((4, 2), (2, 0), colspan=colspan)
+        handles = ax3.plot(realignment_parameter_diffs[:, 3:6])
+        v_ax = ax3.vlines(outliers,ymin=realign_lims[0],ymax=realign_lims[1],color='r',linestyle='--')
+        handles.append(v_ax)
+        ax3.legend(handles, ["x","y","z","rapid art"], loc=loc, ncol=4)
+        ax3.set(ylabel="Translation diffs (abs mm)",xticklabels=[],xlim=(0,realignment_parameter_diffs.shape[0]-1),ylim=(diff_lims))
+        ax3.tick_params(direction = 'in')
+
+        # Plot pitch,roll,raw diffs with rapidart fourth
+        ax4 = plt.subplot2grid((4, 2), (3, 0), colspan=colspan)
+        handles = ax4.plot(realignment_parameter_diffs[:, 0:3]*50)
+        v_ax = ax4.vlines(outliers,ymin=realign_lims[0],ymax=realign_lims[1],color='r',linestyle='--')
+        handles.append(v_ax)
+        ax4.legend(handles, ["pitch","roll", "yaw", "rapid art"], loc=loc, ncol=4)
+        ax4.set(ylabel="Rotation diffs (abs mm)",xlim=(0,realignment_parameter_diffs.shape[0]-1),ylim=diff_lims)
+        ax4.tick_params(direction = 'in')
+
+        # Fine-tune spacing
+        plt.subplots_adjust(top=.96,bottom=.05,hspace=.1)
 
         if title != "":
             filename = title.replace(" ", "_") + ".pdf"
