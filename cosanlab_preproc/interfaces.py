@@ -9,7 +9,7 @@ Classes for various nipype interfaces
 '''
 
 __all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters',
-           'Create_Covariates', 'Down_Sample_Precision', 'Low_Pass_Filter', 'CreateEncodingFile']
+           'Create_Covariates', 'Down_Sample_Precision', 'Filter_In_Mask', 'CreateEncodingFile']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 import os
 import nibabel as nib
-from nipype.interfaces.base import isdefined, BaseInterface, TraitedSpec, File, traits
+from nipype.interfaces.base import BaseInterface, TraitedSpec, File, traits
 from nilearn import plotting, image
 
 
@@ -200,16 +200,25 @@ class Plot_Realignment_Parameters_OutputSpec(TraitedSpec):
 class Plot_Realignment_Parameters(BaseInterface):
 
     """
-        Create a plot of realignment parameters.
-        *NOTE*, this function assumes the output of FSL's McFlirt which returns Rotation X, Rotation Y, Rotation Z (all in rads), Translation X, Translation Y, Translation Z (all in mm).
-        For reference of this FSL mailing list:
-        https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
-        And nipype.utils.normalize_mc_params:
-        https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
+    Create a plot of realignment parameters.
+    *NOTE*, this function assumes the output of FSL's McFlirt which returns Rotation X, Rotation Y, Rotation Z (all in rads), Translation X, Translation Y, Translation Z (all in mm).
+    For reference of this FSL mailing list:
+    https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
+    And nipype.utils.normalize_mc_params:
+    https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;cda6e2ea.1112
 
-        To make plots on the same scale we convert rotations to arc-length in mm using assuming a 50mm sphere which is approximately the mean distance from the cerebral cortex to the cetner of the head (Power et al, 2012, NeuroImage). This conversion is not applied to any covariate files generated and is purely for visualization.
+    To make plots on the same scale we convert rotations to arc-length in mm using assuming a 50mm sphere which is approximately the mean distance from the cerebral cortex to the cetner of the head (Power et al, 2012, NeuroImage). This conversion is not applied to any covariate files generated and is purely for visualization.
 
-        Formuala: arc-length (mm) = rotation (rad) * 50mm
+    Formuala: arc-length (mm) = rotation (rad) * 50mm
+
+    Args:
+        realignment_parameters: FSL Mcflirt's output parameter file
+        outliers: text file with outlier time-points, e.g. from rapidart
+        title: plot title; default 'Realignment parameters'
+        dpi: figure dpi; default 300
+
+    Returns:
+        plot: plot file
 
     """
 
@@ -327,20 +336,35 @@ class Down_Sample_Precision(BaseInterface):
         return outputs
 
 
-class Low_Pass_Filter_InputSpec(TraitedSpec):
+class Filter_In_Mask_InputSpec(TraitedSpec):
     in_file = File(exists=True, mandatory=True)
     mask = File(exists=True, mandatory=True)
     low_pass_cutoff = traits.Float(0.25, usedefault=True)
-    sampling_rate = traits.Float(.419, usedefault=True)
+    high_pass_cutoff = traits.Float(None, usedefault=True)
+    sampling_rate = traits.Float(mandatory=True)
 
 
-class Low_Pass_Filter_OutputSpec(TraitedSpec):
+class Filter_In_Mask_OutputSpec(TraitedSpec):
     out_file = File(exists=True)
 
 
-class Low_Pass_Filter(BaseInterface):
-    input_spec = Low_Pass_Filter_InputSpec
-    output_spec = Low_Pass_Filter_OutputSpec
+class Filter_In_Mask(BaseInterface):
+    """
+    Node to perform high and/or low-pass filtering using nltools which utilizes nilearn's 5th order butterworth filter. If no low or high-pass cutoffs are provided, simply masks the data and returns as-is. This can be useful if the output is subsequently passed to a smoothing node, to act like AFNI's blur in mask functionality.
+
+    Args:
+        in_file: file to filter
+        mask: mask to apply to data to filer; typically something like MNI152 mask
+        low_pass_cutoff: frequencies above this will be filtered; default 0.25hz
+        high_pass_cutoff: frequenceies below this will be filtered; default None
+        sampling_rate: TR in seconds
+
+    Returns:
+        out_file: filtered and masked data
+    """
+
+    input_spec = Filter_In_Mask_InputSpec
+    output_spec = Filter_In_Mask_OutputSpec
 
     def _run_interface(self, runtime):
         from nltools.data import Brain_Data
@@ -348,10 +372,13 @@ class Low_Pass_Filter(BaseInterface):
         in_file = self.inputs.in_file
         mask = self.inputs.mask
         low_pass = self.inputs.low_pass_cutoff
+        high_pass = self.inputs.high_pass_cutoff
         TR = self.inputs.sampling_rate
 
         dat = Brain_Data(in_file, mask=mask)
-        dat = dat.filter(sampling_rate=TR, low_pass=low_pass)
+        # Handle no filtering
+        if low_pass or high_pass:
+            dat = dat.filter(sampling_rate=TR, low_pass=low_pass,high_pass=high_pass)
 
         # Generate output file name
         out_file = os.path.split(
