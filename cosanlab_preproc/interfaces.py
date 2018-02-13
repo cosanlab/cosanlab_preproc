@@ -9,7 +9,7 @@ Classes for various nipype interfaces
 '''
 
 __all__ = ['Plot_Coregistration_Montage', 'Plot_Realignment_Parameters',
-           'Create_Covariates', 'Down_Sample_Precision', 'Filter_In_Mask', 'CreateEncodingFile']
+           'Create_Covariates', 'Down_Sample_Precision', 'Filter_In_Mask', 'Create_Encoding_File']
 __author__ = ["Luke Chang"]
 __license__ = "MIT"
 
@@ -446,19 +446,19 @@ class Create_Covariates(BaseInterface):
         outputs["covariates"] = os.path.abspath(self._covariates)
         return outputs
 
-class CreateEncodingFileInputSpec(TraitedSpec):
+class Create_Encoding_File_InputSpec(TraitedSpec):
     fmaps = traits.List()
     fmap_pes = traits.List()
     totalReadoutTimes = traits.List()
     measurements = traits.List()
     file_name = traits.Str()
 
-class CreateEncodingFileOutputSpec(TraitedSpec):
+class Create_Encoding_File_OutputSpec(TraitedSpec):
     encoding_file = traits.File()
 
-class CreateEncodingFile(BaseInterface):
+class Create_Encoding_File(BaseInterface):
     """
-    CreateEncodingFile interface creates encoding file necessary for FSL TOPUP interface.
+    Create_Encoding_File interface creates encoding file necessary for FSL TOPUP interface.
     Args:
         fmaps: list of fieldmap files (e.g., [AP.nii.gz, PA.nii.gz] )
         fmap_pes: list of phase encoding directions for each file (e.g., [j-, j])
@@ -468,8 +468,8 @@ class CreateEncodingFile(BaseInterface):
     Returns:
         encoding_file: encoding file to be used with topup
     """
-    input_spec = CreateEncodingFileInputSpec
-    output_spec = CreateEncodingFileOutputSpec
+    input_spec = Create_Encoding_File_InputSpec
+    output_spec = Create_Encoding_File_OutputSpec
 
     def _run_interface(self,runtime):
         pe_to_encoding = {'i':'1 0 0','i-':'-1 0 0',
