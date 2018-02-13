@@ -231,7 +231,7 @@ class Plot_Realignment_Parameters(BaseInterface):
         import pylab as plt
         realignment_parameters = np.loadtxt(self.inputs.realignment_parameters)
         realignment_parameter_diffs = np.abs(np.diff(realignment_parameters,axis=0))
-        outliers = np.loadtext(self.inputs.outliers)
+        outliers = np.loadtxt(self.inputs.outliers)
 
         title = self.inputs.title
         colspan = 2
@@ -379,7 +379,7 @@ class Filter_In_Mask(BaseInterface):
             low_pass = None
         if high_pass == 0:
             high_pass = None
-            
+
         dat = Brain_Data(in_file, mask=mask)
         # Handle no filtering
         if low_pass or high_pass:
