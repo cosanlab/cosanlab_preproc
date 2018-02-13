@@ -85,19 +85,38 @@ class Plot_Coregistration_Montage(BaseInterface):
 
 class Plot_Quality_Control_InputSpec(TraitedSpec):
     dat_img = File(exists=True, mandatory=True)
-    title = traits.Str("Quality Control Plot", usedefault=True)
+    title = traits.Str("Signal quality", usedefault=True)
     global_outlier_cutoff = traits.Float(3, usedefault=True)
     frame_outlier_cutoff = traits.Float(3, usedefault=True)
+    dpi = traits.Int(300, usedefault=True)
 
 
 class Plot_Quality_Control_OutputSpec(TraitedSpec):
     plot = File(exists=True)
     fd_outliers = File(exists=True)
+    global_outliers = File(exists=True)
 
 
 class Plot_Quality_Control(BaseInterface):
-    # This function creates quality control plots for a 4D time series.
-    # Recommend running this after realignment.
+
+    """
+    This is a QA interface that does two things:
+    1) It generates plots that include: tSNR brain images, global signal mean, std, and frame-differences (of signal intensities)
+    2) It computes two kinds of outliers: a) TRs where the global signal > 3 stds (default) from the mean; b) TRs where successive differences between TRs (i.e. frame differences) are > 3 stds (default) from the mean frame-diff
+
+    Args:
+        dat_img: epi nifti file
+        title: plot title (optional)
+        global_outlier_cutoff: cutoff to identify outlier TRs based on global signal intensity; default 3 standard deviations from mean
+        frame_outlier_cutoff: cutoff to identifiy outlier TRs based on intensity differences between successive TRs; default 3 standard deviations from mean
+        dpi: figure dpi; default 300
+
+    Returns:
+        plot: QA plot file
+        fd_outliers: outlier TRs based on frame-differences
+        global_outliers: outlier TRs based on global intensity
+
+    """
 
     input_spec = Plot_Quality_Control_InputSpec
     output_spec = Plot_Quality_Control_OutputSpec
@@ -114,67 +133,87 @@ class Plot_Quality_Control(BaseInterface):
 
         dat_img = nib.load(self.inputs.dat_img)
         # Apply mask first to deal with 0 sd for computing tsnr
+        # nilearn defaults are lower = 0.2; upper = 0.85
         mask = compute_epi_mask(dat_img)
         masked_data = apply_mask(dat_img, mask)
+        # Compute mean across time within each voxel
         mn = np.mean(masked_data, axis=0)
         sd = np.std(masked_data, axis=0)
         tsnr = np.true_divide(mn, sd)
+        # Compute mean across voxels within each TR
+        global_mn = np.mean(masked_data, axis=1)
+        global_sd = np.std(masked_data, axis=1)
+        # Unmask data for plotting below
         mn = unmask(mn, mask)
         sd = unmask(sd, mask)
         tsnr = unmask(tsnr, mask)
-        global_mn = np.mean(masked_data, axis=1)
-        global_sd = np.std(masked_data, axis=1)
 
-        global_outlier = np.append(np.where(global_mn > np.mean(global_mn) + np.std(global_mn) * self.inputs.global_outlier_cutoff),
+        # Identify global signal outliers
+        global_outliers = np.append(np.where(global_mn > np.mean(global_mn) + np.std(global_mn) * self.inputs.global_outlier_cutoff),
                                    np.where(global_mn < np.mean(global_mn) - np.std(global_mn) * self.inputs.global_outlier_cutoff))
+
+        # Identify frame difference outliers
         frame_diff = np.mean(np.abs(np.diff(masked_data, axis=0)), axis=1)
-        frame_outlier = np.append(np.where(frame_diff > np.mean(frame_diff) + np.std(frame_diff) * self.inputs.frame_outlier_cutoff),
+        frame_outliers = np.append(np.where(frame_diff > np.mean(frame_diff) + np.std(frame_diff) * self.inputs.frame_outlier_cutoff),
                                   np.where(frame_diff < np.mean(frame_diff) - np.std(frame_diff) * self.inputs.frame_outlier_cutoff))
 
-        fd_file_name = "fd_outlier.txt"
-        np.savetxt(fd_file_name, frame_outlier)
+        fd_file_name = "fd_outliers.txt"
+        global_file_name = "global_outliers.txt"
+        np.savetxt(fd_file_name, frame_outliers)
+        np.savetxt(global_file_name, global_outliers)
 
         title = self.inputs.title
+        colspan = 2
+        loc = 9
+        F = plt.figure(figsize=(8.3, 11.7))
+        F.text(0.5, .93, title, horizontalalignment='center',fontsize=16)
+        F.text(0.5, .01, 'TR', horizontalalignment='center',fontsize=16)
+
+        # Plot brain images first
+        ax1 = plt.subplot2grid((6, 2), (0, 0), colspan=colspan)
+        plot_stat_map(mn, title="Mean", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax1,
+                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
+        ax2 = plt.subplot2grid((6, 2), (1, 0), colspan=colspan)
+        plot_stat_map(sd, title="Standard Deviation", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax2,
+                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
+        ax3 = plt.subplot2grid((6, 2), (2, 0), colspan=colspan)
+        plot_stat_map(tsnr, title="tSNR (mn/sd)", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax3,
+                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
+
+        # Plot global mean, std, diffs next
+        ax4 = plt.subplot2grid((6, 2), (3, 0), colspan=colspan)
+        handles = ax4.plot(global_mn)
+        ax4.set(xlabel='',ylabel='Global mean',xticklabels=[])
+        v_ax = ax4.vlines(global_outliers,ax4.get_ylim()[0],ax4.get_ylim()[-1],color='r', linestyle='--',zorder=3)
+        handles.append(v_ax)
+        ax4.legend([v_ax],['intensity outliers'],loc=loc)
+        ax4.tick_params(direction='in')
+
+        ax5 = plt.subplot2grid((6, 2), (4, 0), colspan=colspan)
+        handles = ax5.plot(global_sd)
+        ax5.set(xlabel='',ylabel='Global std',xticklabels=[])
+        ax5.tick_params(direction='in')
+
+        ax6 = plt.subplot2grid((6, 2), (5, 0), colspan=colspan)
+        handles = ax6.plot(frame_diff)
+        ax6.set(xlabel='',ylabel='Global abs diffs')
+        v_ax = ax6.vlines(frame_outliers,ax6.get_ylim()[0],ax6.get_ylim()[-1],color='r', linestyle='--',zorder=3)
+        ax6.legend([v_ax],['diff outliers'],loc=loc)
+        ax6.tick_params(direction='in')
 
         if title != "":
             filename = title.replace(" ", "_") + ".pdf"
         else:
-            filename = "Quality_Control_Plot.pdf"
+            filename = "plot.pdf"
 
-        f, ax = plt.subplots(6, figsize=(15, 15))
-        plot_stat_map(mn, title="Mean", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax[0],
-                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
-
-        plot_stat_map(sd, title="Standard Deviation", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax[1],
-                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
-
-        plot_stat_map(tsnr, title="SNR (mn/sd)", cut_coords=range(-40, 40, 10), display_mode='z', axes=ax[2],
-                      draw_cross=False, black_bg=True, annotate=False, bg_img=None)
-
-        ax[3].plot(global_mn)
-        # ax[3].set_title('Average Signal Intensity')
-        ax[3].set_xlabel('TR')
-        ax[3].set_ylabel('Global Signal Mean')
-        for x in global_outlier:
-            ax[3].axvline(x, color='r', linestyle='--')
-
-        ax[4].plot(global_sd)
-        # ax[4].set_title('Frame Differencing')
-        ax[4].set_xlabel('TR')
-        ax[4].set_ylabel('Global Signal Std')
-
-        ax[5].plot(frame_diff)
-        # ax[4].set_title('Frame Differencing')
-        ax[5].set_xlabel('TR')
-        ax[5].set_ylabel('Avg Abs Diff')
-        for x in frame_outlier:
-            ax[5].axvline(x, color='r', linestyle='--')
-        f.savefig(filename)
-        plt.close(f)
-        del f
+        F.savefig(filename, papertype="a4", dpi=self.inputs.dpi)
+        plt.clf()
+        plt.close()
+        del F
 
         self._plot = filename
         self._fd_outliers = fd_file_name
+        self._global_outliers = global_file_name
 
         runtime.returncode = 0
         return runtime
@@ -183,6 +222,7 @@ class Plot_Quality_Control(BaseInterface):
         outputs = self._outputs().get()
         outputs["plot"] = os.path.abspath(self._plot)
         outputs["fd_outliers"] = os.path.abspath(self._fd_outliers)
+        outputs["global_outliers"] = os.path.abspath(self._global_outliers)
         return outputs
 
 
