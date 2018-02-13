@@ -340,7 +340,7 @@ class Filter_In_Mask_InputSpec(TraitedSpec):
     in_file = File(exists=True, mandatory=True)
     mask = File(exists=True, mandatory=True)
     low_pass_cutoff = traits.Float(0.25, usedefault=True)
-    high_pass_cutoff = traits.Float(None, usedefault=True)
+    high_pass_cutoff = traits.Float(0, usedefault=True)
     sampling_rate = traits.Float(mandatory=True)
 
 
@@ -375,6 +375,11 @@ class Filter_In_Mask(BaseInterface):
         high_pass = self.inputs.high_pass_cutoff
         TR = self.inputs.sampling_rate
 
+        if low_pass == 0:
+            low_pass = None
+        if high_pass == 0:
+            high_pass = None
+            
         dat = Brain_Data(in_file, mask=mask)
         # Handle no filtering
         if low_pass or high_pass:
