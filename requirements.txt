@@ -8,3 +8,4 @@ matplotlib
 nipy >=0.4.0
 pybids >=0.1
 nipype >=0.13.1
+duecredit

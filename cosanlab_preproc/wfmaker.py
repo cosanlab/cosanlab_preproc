@@ -30,69 +30,36 @@ from nipype.interfaces.fsl.utils import Smooth
 from nipype.interfaces.nipy.preprocess import Trim
 
 
-def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=False,apply_smooth=6.0,apply_filter=False,mni_template='2mm',ants_threads=12):
+def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',ants_threads=12,readable_crash_files=False):
 
     """
     This function returns a "standard" workflow based on requested settings. Assumes data is in the following directory structure in BIDS format:
 
-    ```
-    project/
-        raw/
-            sub1/
-                anat/
-                fmap/
-                func/
-                    sub1-task-something-run-01.bold.nii.gz
-                    sub1-task-something-run-01.bold.json
-                    sub1-task-something-run-02.bold.nii.gz
-                    sub1-task-something-run-02.bold.json
-        preprocessed/
-            final/
-                [Final outputted files will be put here, organized by subject]
-            intermediate/
-                [Intermediate files will be put here, organized by subject]
-    ```
-
     *Work flow steps*:
 
-    1) Distortion Correction (optional)
-
+    1) EPI Distortion Correction (FSL; optional)
     2) Trimming (nipy)
-
     3) Realignment/Motion Correction (FSL)
-
-    4) Artifact Detection (nipype)
-
-    5) Brain Extraction + Bias Correction (ANTs)
-
+    4) Artifact Detection (rapidART/python)
+    5) Brain Extraction + N4 Bias Correction (ANTs)
     6) Coregistration (rigid) (ANTs)
-
-    7) Normalization to MNI 152 2mm (non-linear) (ANTs)
-
-    8) Smoothing (FSL)
-
-    9) Downsampling to INT16 precision to save space (custom)
-
-    *Generated QA files and figures*:
-
-    1) Realignment parameters, motion, and intensity spikes
-
-    2) QA plots of global signal mean, sd, and frame-differences
-
-    3) QA figures for normalization check
+    7) Normalization to MNI (non-linear) (ANTs)
+    8) Low-pass filtering (nilearn; optional)
+    8) Smoothing (FSL; optional)
+    9) Downsampling to INT16 precision to save space (nibabel)
 
     Args:
         project_dir (str): root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
         raw_dir (str): folder name for raw data, e.g. 'raw' which would be treated as /my/data/myproject/raw
         subject_dir (str): subject folder name to process, e.g. 'sid-0001', which would be treated as /my/data/myproject/raw/sid-0001
-        vols_to_trim (int): number of volumes to trim from the beginning of each functional run
+        apply_trim (int/bool; optional): number of volumes to trim from the beginning of each functional run; default is None
         task_name (str; optional): which functional task runs to process; default is all runs
-        dist_corr (bool; optional): look for fmap files and perform distortion correction; default False
-        smooth (int/list; optional): smoothing to perform; if a list is provided will create outputs for each smoothing kernel separately; default 6mm fwhm
-        apply_filter (float/list; optional): low-pass cut-offs to perform filtering; if a list is provided will create outputs for each filter cut-off separately; default None
+        apply_dist_corr (bool; optional): look for fmap files and perform distortion correction; default False
+        smooth (int/list; optional): smoothing to perform in FWHM mm; if a list is provided will create outputs for each smoothing kernel separately; default False
+        apply_filter (float/list; optional): low-pass/high-freq filtering cut-offs in Hz; if a list is provided will create outputs for each filter cut-off separately. With high temporal resolution scans .25Hz is a decent value to capture respitory artifacts; default None/False
         mni_template (str; optional): which mm resolution template to use, e.g. '3mm'; default '2mm'
         ants_threads (int; optional): number of threads ANTs should use for its processes; default 12
-
+        readable_crash_files (bool; optional): should nipype crash files be saved as txt? This makes them easily readable, but sometimes interferes with nipype's ability to use cached results of successfully run nodes (i.e. picking up where it left off after bugs are fixed); default False
 
     Examples:
 
@@ -102,7 +69,7 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
         >>> workflow = wfmaker(
                         project_dir = '/data/project',
                         raw_dir = 'raw',
-                        vols_to_trim = 5)
+                        apply_trim = 5)
         >>>
         >>> workflow.run('MultiProc',plugin_args = {'n_procs': 16})
         >>>
@@ -111,8 +78,8 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
         >>> workflow = wfmaker(
                         project_dir = '/data/project',
                         raw_dir = 'raw',
-                        vols_to_trim = 25,
-                        dist_corr = True,
+                        apply_trim = 25,
+                        apply_dist_corr = True,
                         apply_filter = [0, .25],
                         apply_smooth = [6.0, 8.0],
                         mni = '3mm')
@@ -138,7 +105,7 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     if not os.path.exists(output_interm_dir):
         os.makedirs(output_interm_dir)
     if not os.path.exists(log_dir):
-        os.makdirs(log_dir)
+        os.makedirs(log_dir)
 
     # Set MNI template
     MNItemplate = os.path.join(get_resource_path(),'MNI152_T1_' + mni_template + '_brain.nii.gz')
@@ -156,8 +123,6 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
 
     layout = BIDSLayout(data_dir)
     subId = subject_id[4:]
-    print(f"Processing subject: {subject_id}")
-    print(f"SID: {subId}")
 
     #Get anat file location
     anat = layout.get(subject=subId,type='T1w',extensions='.nii.gz')[0].filename
@@ -178,16 +143,19 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     #####################################
     ## TRIM ##
     #####################################
-    trim = Node(Trim(),name = 'trim')
-    trim.inputs.begin_index = vols_to_trim
+    if apply_trim:
+        trim = Node(Trim(),name = 'trim')
+        trim.inputs.begin_index = apply_trim
 
     #####################################
     ## DISTORTION CORRECTION ##
     #####################################
 
-    if dist_corr:
+    if apply_dist_corr:
         #Get fmap file locations
         fmaps = [f.filename for f in layout.get(subject=subId,modality='fmap',extensions='.nii.gz')]
+        if not fmaps:
+            raise IOError("Distortion Correction requested but field map scans not found...")
 
         #Get fmap metadata
         totalReadoutTimes, measurements, fmap_pes = [],[],[]
@@ -347,7 +315,6 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     normalization.inputs.shrink_factors=[[8, 4, 2, 1]]*3
     normalization.inputs.sigma_units=['vox']*3
     normalization.inputs.smoothing_sigmas=[[3, 2, 1, 0]]*3
-    normalization.inputs.terminal_output='stream'
     normalization.inputs.transforms = ['Rigid','Affine','SyN']
     normalization.inputs.transform_parameters=[(0.1,),
                                      (0.1,),
@@ -370,7 +337,6 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     apply_transforms.inputs.environ = {}
     apply_transforms.inputs.interpolation = 'BSpline'
     apply_transforms.inputs.invert_transform_flags = [False, False]
-    apply_transforms.inputs.terminal_output = 'stream'
     apply_transforms.inputs.reference_image = MNItemplate
 
     # Used for t1 segmented -> mni, via (norm)
@@ -381,7 +347,6 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     apply_transform_seg.inputs.environ = {}
     apply_transform_seg.inputs.interpolation = 'MultiLabel'
     apply_transform_seg.inputs.invert_transform_flags = [False, False]
-    apply_transform_seg.inputs.terminal_output = 'stream'
     apply_transform_seg.inputs.reference_image = MNItemplate
 
     ###################################
@@ -399,26 +364,27 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     down_samp = Node(Down_Sample_Precision(),name="down_samp")
 
     #Use FSL for smoothing
-    smooth = Node(Smooth(),name='smooth')
-    if isinstance(apply_smooth, list):
-        smooth.iterables = ("fwhm",apply_smooth)
-    elif isinstance(apply_smooth, int) or isinstance(apply_smooth, float):
-        smooth.inputs.fwhm = apply_smooth
-    else:
-        raise ValueError("apply_smooth must be a list or int/float")
+    if apply_smooth:
+        smooth = Node(Smooth(),name='smooth')
+        if isinstance(apply_smooth, list):
+            smooth.iterables = ("fwhm",apply_smooth)
+        elif isinstance(apply_smooth, int) or isinstance(apply_smooth, float):
+            smooth.inputs.fwhm = apply_smooth
+        else:
+            raise ValueError("apply_smooth must be a list or int/float")
 
     #Use cosanlab_preproc for low-pass filtering
-    lp_filter = Node(Filter_In_Mask(),name='lp_filter')
-    lp_filter.inputs.mask = MNImask
-    lp_filter.inputs.sampling_rate = tr_length
-    lp_filter.inputs.high_pass_cutoff = 0
-
-    if isinstance(apply_filter,list):
-        lp_filter.iterables = ("low_pass_cutoff",filter)
-    elif isinstance(apply_filter, int) or isinstance(apply_filter, float):
-        lp_filter.inputs.low_pass_cutoff = apply_filter
-    else:
-        raise ValueError("apply_filter must be a list or int/float")
+    if apply_filter:
+        lp_filter = Node(Filter_In_Mask(),name='lp_filter')
+        lp_filter.inputs.mask = MNImask
+        lp_filter.inputs.sampling_rate = tr_length
+        lp_filter.inputs.high_pass_cutoff = 0
+        if isinstance(apply_filter,list):
+            lp_filter.iterables = ("low_pass_cutoff",filter)
+        elif isinstance(apply_filter, int) or isinstance(apply_filter, float):
+            lp_filter.inputs.low_pass_cutoff = apply_filter
+        else:
+            raise ValueError("apply_filter must be a list or int/float")
 
     ###################
     ### OUTPUT NODE ###
@@ -444,41 +410,65 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     ##################
 
     # Init workflow
-    workflow = Workflow(name=subject_id)
+    workflow = Workflow(name=subId)
     workflow.base_dir = output_interm_dir
-    workflow.config['execution'] = {'crashfile_format': 'txt'}
+    workflow.config['logging'] = {'log_directory': log_dir, 'log_to_file': True}
+
+    if readable_crash_files:
+        workflow.config['execution'] = {'crashfile_format': 'txt'}
 
     ############################
     ######### PART (1) #########
-    # func -> discorr -> trim
+    # func -> discorr -> trim -> realign
     # OR
-    # func -> trim
+    # func -> trim -> realign
+    # OR
+    # func -> discorr -> realign
+    # OR
+    # func -> realign
     ############################
-    if dist_corr:
+    if apply_dist_corr:
         workflow.connect([
             (encoding_file_writer, topup,[('encoding_file','encoding_file')]),
             (encoding_file_writer, apply_topup,[('encoding_file','encoding_file')]),
             (merger,topup,[('merged_file','in_file')]),
             (func_scans,apply_topup,[('scan','in_files')]),
             (topup,apply_topup,[('out_fieldcoef','in_topup_fieldcoef'),
-                                ('out_movpar','in_topup_movpar')]),
-            (apply_topup,trim,[('out_corrected','in_file')])
+                                ('out_movpar','in_topup_movpar')])
         ])
+        if apply_trim:
+            # Dist Corr + Trim
+            workflow.connect([
+                (apply_topup,trim,[('out_corrected','in_file')]),
+                (trim, realign_fsl, [('out_file','in_file')])
+            ])
+        else:
+            # Dist Corr + No Trim
+            workflow.connect([
+                (apply_topup,realign_fsl,[('out_corrected','in_file')])
+            ])
     else:
-        workflow.connect([
-            (func_scans, trim, [('scan','in_file')]),
-        ])
+        if apply_trim:
+            # No Dist Corr + Trim
+            workflow.connect([
+                (func_scans, trim, [('scan','in_file')]),
+                (trim, realign_fsl, [('out_file','in_file')])
+            ])
+        else:
+            # No Dist Corr + No Trim
+            workflow.connect([
+                (func_scans, realign_fsl, [('scan','in_file')]),
+            ])
 
     ##########################################
     ############### PART (2) #################
-    # trim -> realign -> coreg -> mni (via t1)
+    # realign -> coreg -> mni (via t1)
     # t1 -> mni
     # covariate creation
     # plot creation
     ###########################################
 
     workflow.connect([
-        (trim, realign_fsl, [('out_file','in_file')]),
         (realign_fsl, plot_realign, [('par_file','realignment_parameters')]),
         (realign_fsl, plot_qa, [('out_file','dat_img')]),
         (realign_fsl, art, [('out_file','realigned_files'),
@@ -499,7 +489,7 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
         (realign_fsl, apply_transforms, [('out_file','input_image')]),
         (apply_transforms, mean_norm_epi, [('output_image','in_file')]),
         (normalization, apply_transform_seg, [('composite_transform','transforms')]),
-        (brain_extraction_ants, apply_transform_seg, [('BrainExtractionSegmentation','input_image')])
+        (brain_extraction_ants, apply_transform_seg, [('BrainExtractionSegmentation','input_image')]),
         (mean_norm_epi, plot_normalization_check, [('out_file','wra_img')])
     ])
 
@@ -522,7 +512,7 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
         if apply_smooth:
             # Filtering + Smoothing
             workflow.connect([
-                (lp_filter, smooth, [('out_file','in_file')])
+                (lp_filter, smooth, [('out_file','in_file')]),
                 (smooth, down_samp, [('smoothed_file','in_file')])
                 ])
         else:
@@ -540,7 +530,7 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
         else:
             # No Filtering + No Smoothing
             workflow.connect([
-                (apply_transforms, down_samp, [('output_image', 'in_file')]),
+                (apply_transforms, down_samp, [('output_image', 'in_file')])
             ])
 
     ##########################################
@@ -565,4 +555,5 @@ def wfmaker(project_dir,raw_dir,subject_id,vols_to_trim,task_name='',dist_corr=F
     if not os.path.exists(os.path.join(output_dir,'pipeline.png')):
         workflow.write_graph(dotfilename=os.path.join(output_dir,'pipeline'),format='png')
 
+    print(f"Creating workflow for subject: {subject_id}")
     return workflow
