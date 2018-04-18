@@ -16,6 +16,7 @@ from nipype.interfaces.utility import Merge, IdentityInterface
 from nipype.pipeline.engine import Node, Workflow
 from .interfaces import	Plot_Coregistration_Montage,Plot_Quality_Control,Plot_Realignment_Parameters,Create_Covariates,Down_Sample_Precision,Create_Encoding_File, Filter_In_Mask
 from .utils import get_resource_path
+import six
 
 from bids.grabbids import BIDSLayout
 from nipype.interfaces.nipy.preprocess import ComputeMask
@@ -51,7 +52,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     Args:
         project_dir (str): root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
         raw_dir (str): folder name for raw data, e.g. 'raw' which would be treated as /my/data/myproject/raw
-        subject_dir (str): subject folder name to process, e.g. 'sid-0001', which would be treated as /my/data/myproject/raw/sid-0001
+        subject_id (str/int): subject ID to process. Can be either a subject ID string e.g. 'sid-0001' or an integer to index the entire list of subjects in raw_dir, e.g. 0, which would process the first subject
         apply_trim (int/bool; optional): number of volumes to trim from the beginning of each functional run; default is None
         task_name (str; optional): which functional task runs to process; default is all runs
         apply_dist_corr (bool; optional): look for fmap files and perform distortion correction; default False
@@ -122,7 +123,12 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ##################
 
     layout = BIDSLayout(data_dir)
-    subId = subject_id[4:]
+    if isinstance(subject_id, six.string_types):
+        subId = subject_id[4:]
+    elif isinstance(subject_id, int):
+        subId = layout.get_subjects()[subject_id]
+    else:
+        raise TypeError("subject_id should be a string or integer")
 
     #Get anat file location
     anat = layout.get(subject=subId,type='T1w',extensions='.nii.gz')[0].filename
