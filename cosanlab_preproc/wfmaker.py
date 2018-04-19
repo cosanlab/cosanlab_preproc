@@ -262,7 +262,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     brain_extraction_ants.inputs.keep_temporary_files = 1
     brain_extraction_ants.inputs.brain_template = bet_ants_template
     brain_extraction_ants.inputs.extraction_registration_mask = bet_ants_registration_mask
-    brain_extraction_ants.inputs.out_prefix = ''
+    brain_extraction_ants.inputs.out_prefix = 'bet'
 
     ###################################
     ### COREGISTRATION ###
