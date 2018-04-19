@@ -354,7 +354,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     apply_transform_seg.inputs.num_threads = 12
     apply_transform_seg.inputs.environ = {}
     apply_transform_seg.inputs.interpolation = 'MultiLabel'
-    apply_transform_seg.inputs.invert_transform_flags = [False, False]
+    apply_transform_seg.inputs.invert_transform_flags = [False]
     apply_transform_seg.inputs.reference_image = MNItemplate
 
     ###################################
