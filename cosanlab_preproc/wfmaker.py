@@ -50,7 +50,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     9) Downsampling to INT16 precision to save space (nibabel)
 
     Args:
-        project_dir (str): root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
+        project_dir (str): absolute root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
         raw_dir (str): folder name for raw data, e.g. 'raw' which would be treated as /my/data/myproject/raw
         subject_id (str/int): subject ID to process. Can be either a subject ID string e.g. 'sid-0001' or an integer to index the entire list of subjects in raw_dir, e.g. 0, which would process the first subject
         apply_trim (int/bool; optional): number of volumes to trim from the beginning of each functional run; default is None
