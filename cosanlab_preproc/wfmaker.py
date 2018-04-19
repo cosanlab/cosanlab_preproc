@@ -16,6 +16,8 @@ from nipype.interfaces.utility import Merge, IdentityInterface
 from nipype.pipeline.engine import Node, Workflow
 from .interfaces import	Plot_Coregistration_Montage,Plot_Quality_Control,Plot_Realignment_Parameters,Create_Covariates,Down_Sample_Precision,Create_Encoding_File, Filter_In_Mask
 from .utils import get_resource_path
+import six
+
 from bids.grabbids import BIDSLayout
 from nipype.interfaces.nipy.preprocess import ComputeMask
 from nipype.algorithms.rapidart import ArtifactDetect
@@ -121,9 +123,14 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ##################
 
     layout = BIDSLayout(data_dir)
-    if isinstance(subject_id, int):
-        subject_id = layout.get_subjects()[subject_id]
-    subId = subject_id[4:]
+    # Dartmouth subjects are named with the sub- prefix, handle whether we receive an integer identifier for indexing or the full subject id with prefixg
+    if isinstance(subject_id, six.string_types):
+        subId = subject_id[4:]
+    elif isinstance(subject_id, int):
+        subId = layout.get_subjects()[subject_id]
+        subject_id = 'sub-' + subId
+    else:
+        raise TypeError("subject_id should be a string or integer")
 
     #Get anat file location
     anat = layout.get(subject=subId,type='T1w',extensions='.nii.gz')[0].filename
