@@ -428,7 +428,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ##################
 
     # Init workflow
-    workflow = Workflow(name=raw_dir)
+    workflow = Workflow(name=os.path.split(project_dir)[-1])
     workflow.base_dir = output_interm_dir
     workflow.config['logging'] = {'log_directory': log_dir, 'log_to_file': True}
 
