@@ -265,7 +265,6 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ### BRAIN EXTRACTION ###
     ###################################
     brain_extraction_ants = Node(BrainExtraction(),name='brain_extraction')
-    brain_extraction_ants.inputs.anatomical_image = anat #from BIDS
     brain_extraction_ants.inputs.dimension = 3
     brain_extraction_ants.inputs.use_floatingpoint_precision = 1
     brain_extraction_ants.inputs.num_threads = ants_threads
@@ -485,14 +484,12 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     # OR
     # anat -> bet
     ############################
-
     if apply_n4:
         workflow.connect([
         (n4_correction, brain_extraction_ants, [('output_image','anatomical_image')])
         ])
     else:
         brain_extraction_ants.inputs.anatomical_image = anat
-
 
     ##########################################
     ############### PART (2) #################
