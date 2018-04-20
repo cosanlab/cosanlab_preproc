@@ -21,7 +21,7 @@ import six
 from bids.grabbids import BIDSLayout
 from nipype.interfaces.nipy.preprocess import ComputeMask
 from nipype.algorithms.rapidart import ArtifactDetect
-from nipype.interfaces.ants.segmentation import BrainExtraction
+from nipype.interfaces.ants.segmentation import BrainExtraction, N4BiasFieldCorrection
 from nipype.interfaces.ants import Registration, ApplyTransforms
 from nipype.interfaces.fsl import MCFLIRT, TOPUP, ApplyTOPUP
 
@@ -31,7 +31,7 @@ from nipype.interfaces.fsl.utils import Smooth
 from nipype.interfaces.nipy.preprocess import Trim
 
 
-def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',ants_threads=12,readable_crash_files=False):
+def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',apply_n4 =True,ants_threads=12,readable_crash_files=False):
 
     """
     This function returns a "standard" workflow based on requested settings. Assumes data is in the following directory structure in BIDS format:
@@ -59,6 +59,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         smooth (int/list; optional): smoothing to perform in FWHM mm; if a list is provided will create outputs for each smoothing kernel separately; default False
         apply_filter (float/list; optional): low-pass/high-freq filtering cut-offs in Hz; if a list is provided will create outputs for each filter cut-off separately. With high temporal resolution scans .25Hz is a decent value to capture respitory artifacts; default None/False
         mni_template (str; optional): which mm resolution template to use, e.g. '3mm'; default '2mm'
+        apply_n4 (bool; optional): perform N4 Bias Field correction on the anatomical image; default true
         ants_threads (int; optional): number of threads ANTs should use for its processes; default 12
         readable_crash_files (bool; optional): should nipype crash files be saved as txt? This makes them easily readable, but sometimes interferes with nipype's ability to use cached results of successfully run nodes (i.e. picking up where it left off after bugs are fixed); default False
 
@@ -250,6 +251,16 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
 
     make_cov = Node(Create_Covariates(),name='make_cov')
 
+    ################################
+    ### N4 BIAS FIELD CORRECTION ###
+    ################################
+    if apply_n4:
+        n4_correction = Node(N4BiasFieldCorrection(), name='n4_correction')
+        n4_correction.inputs.copy_header = True
+        n4_correction.inputs.save_bias = False
+        n4_correction.inputs.num_threads = ants_threads
+        n4_correction.inputs.input_image = anat
+
     ###################################
     ### BRAIN EXTRACTION ###
     ###################################
@@ -418,7 +429,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ##################
 
     # Init workflow
-    workflow = Workflow(name=subId)
+    workflow = Workflow(name=raw_dir)
     workflow.base_dir = output_interm_dir
     workflow.config['logging'] = {'log_directory': log_dir, 'log_to_file': True}
 
@@ -426,7 +437,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         workflow.config['execution'] = {'crashfile_format': 'txt'}
 
     ############################
-    ######### PART (1) #########
+    ######### PART (1a) #########
     # func -> discorr -> trim -> realign
     # OR
     # func -> trim -> realign
@@ -468,6 +479,21 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
                 (func_scans, realign_fsl, [('scan','in_file')]),
             ])
 
+    ############################
+    ######### PART (1n) #########
+    # anat -> N4 -> bet
+    # OR
+    # anat -> bet
+    ############################
+
+    if apply_n4:
+        workflow.connect([
+        (n4_correction, brain_extraction_ants, [('output_image','anatomical_image')])
+        ])
+    else:
+        brain_extraction_ants.inputs.anatomical_image = anat
+
+
     ##########################################
     ############### PART (2) #################
     # realign -> coreg -> mni (via t1)
@@ -488,9 +514,9 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         (art, make_cov, [('outlier_files','spike_id')]),
         (art, plot_realign, [('outlier_files','outliers')]),
         (plot_qa, make_cov, [('fd_outliers','fd_outliers')]),
-        (brain_extraction_ants, coregistration, [('N4Corrected0','fixed_image')]),
+        (brain_extraction_ants, coregistration, [('BrainExtractionBrain','fixed_image')]),
         (mean_epi, coregistration, [('out_file','moving_image')]),
-        (brain_extraction_ants, normalization, [('N4Corrected0','moving_image')]),
+        (brain_extraction_ants, normalization, [('BrainExtractionBrain','moving_image')]),
         (coregistration, merge_transforms, [('composite_transform','in2')]),
         (normalization, merge_transforms, [('composite_transform','in1')]),
         (merge_transforms, apply_transforms, [('out','transforms')]),
