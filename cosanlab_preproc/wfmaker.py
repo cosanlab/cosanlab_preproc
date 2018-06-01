@@ -296,7 +296,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     coregistration.inputs.convergence_window_size = [10]
     coregistration.inputs.smoothing_sigmas = [[3,2,1,0]]
     coregistration.inputs.sigma_units = ['mm']
-    coregistration.inputs.shrink_factors = [[8,4,2,1]]
+    coregistration.inputs.shrink_factors = [[4,3,2,1]]
     coregistration.inputs.use_estimate_learning_rate_once = [True]
     coregistration.inputs.use_histogram_matching = [False]
     coregistration.inputs.initial_moving_transform_com = True
@@ -307,14 +307,39 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     ###################################
     ### NORMALIZATION ###
     ###################################
-    #ANTS step through several different iterations starting with linear, affine and finally non-linear diffuseomorphic alignment. The settings below increase the run time but yield a better alignment solution
+    # Settings Explanations
+    # Only a few key settings are worth adjusting and most others relate to how ANTs optimizer starts or iterates and won't make a ton of difference
+    # Brian Avants referred to these settings as the last "best tested" when he was aligning fMRI data: https://github.com/ANTsX/ANTsRCore/blob/master/R/antsRegistration.R#L275
+    # Things that matter the most:
+    # smoothing_sigmas:
+        # how much gaussian smoothing to apply when performing registration, probably want the upper limit of this to match the resolution that the data is collected at e.g. 3mm
+        # Old settings [[3,2,1,0]]*3
+    # shrink_factors
+        # The coarseness with which to do registration
+        # Old settings [[8,4,2,1]] * 3
+        # >= 8 may result is some problems causing big chunks of cortex with little fine grain spatial structure to be moved to other parts of cortex
+    # Other settings
+    # transform_parameters:
+        # how much regularization to do for fitting that transformation
+        # for syn this pertains to both the gradient regularization term, and the flow, and elastic terms. Leave the syn settings alone as they seem to be the most well tested across published data sets
+    # radius_or_number_of_bins
+        # This is the bin size for MI metrics and 32 is probably adequate for most use cases. Increasing this might increase precision (e.g. to 64) but takes exponentially longer
+    # use_histogram_matching
+        # Use image intensity distribution to guide registration
+        # Leave it on for within modality registration (e.g. T1 -> MNI), but off for between modality registration (e.g. EPI -> T1)
+    # convergence_threshold
+        # threshold for optimizer
+    # convergence_window_size
+        # how many samples should optimizer average to compute threshold?
+    # sampling_strategy
+        # what strategy should ANTs use to initialize the transform. Regular here refers to approximately random sampling around the center of the image mass
     normalization = Node(Registration(),name='normalization')
     normalization.inputs.float = False
     normalization.inputs.collapse_output_transforms=True
-    normalization.inputs.convergence_threshold=[1e-06]
+    normalization.inputs.convergence_threshold=[[1e-06],[1e-06],[1e-07]]
     normalization.inputs.convergence_window_size=[10]
     normalization.inputs.dimension = 3
-    normalization.inputs.fixed_image = MNItemplate #MNI 152 1mm
+    normalization.inputs.fixed_image = MNItemplate
     normalization.inputs.initial_moving_transform_com=True
     normalization.inputs.metric=['MI', 'MI', 'CC']
     normalization.inputs.metric_weight=[1.0]*3
@@ -330,9 +355,9 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     normalization.inputs.sampling_strategy=['Regular',
                                   'Regular',
                                   'None']
-    normalization.inputs.shrink_factors=[[8, 4, 2, 1]]*3
+    normalization.inputs.shrink_factors=[[4, 3, 2, 1]]*3
     normalization.inputs.sigma_units=['vox']*3
-    normalization.inputs.smoothing_sigmas=[[3, 2, 1, 0]]*3
+    normalization.inputs.smoothing_sigmas=[[2,1],[2,1],[3, 2, 1, 0]]
     normalization.inputs.transforms = ['Rigid','Affine','SyN']
     normalization.inputs.transform_parameters=[(0.1,),
                                      (0.1,),
