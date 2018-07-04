@@ -32,7 +32,7 @@ from nipype.interfaces.fsl.utils import Smooth
 from nipype.interfaces.nipy.preprocess import Trim
 
 
-def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',apply_n4 =True,ants_threads=12,readable_crash_files=False):
+def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',apply_n4 =True,ants_threads=8,readable_crash_files=False):
 
     """
     This function returns a "standard" workflow based on requested settings. Assumes data is in the following directory structure in BIDS format:
@@ -51,8 +51,8 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     9) Downsampling to INT16 precision to save space (nibabel)
 
     Args:
-        project_dir (str): absolute root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
-        raw_dir (str): folder name for raw data, e.g. 'raw' which would be treated as /my/data/myproject/raw
+        project_dir (str): full path to the root of project folder, e.g. /my/data/myproject. All preprocessed data will be placed under this foler and the raw_dir folder will be searched for under this folder
+        raw_dir (str): folder name for raw data, e.g. 'raw' which would be automatically converted to /my/data/myproject/raw
         subject_id (str/int): subject ID to process. Can be either a subject ID string e.g. 'sid-0001' or an integer to index the entire list of subjects in raw_dir, e.g. 0, which would process the first subject
         apply_trim (int/bool; optional): number of volumes to trim from the beginning of each functional run; default is None
         task_name (str; optional): which functional task runs to process; default is all runs
@@ -61,7 +61,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         apply_filter (float/list; optional): low-pass/high-freq filtering cut-offs in Hz; if a list is provided will create outputs for each filter cut-off separately. With high temporal resolution scans .25Hz is a decent value to capture respitory artifacts; default None/False
         mni_template (str; optional): which mm resolution template to use, e.g. '3mm'; default '2mm'
         apply_n4 (bool; optional): perform N4 Bias Field correction on the anatomical image; default true
-        ants_threads (int; optional): number of threads ANTs should use for its processes; default 12
+        ants_threads (int; optional): number of threads ANTs should use for its processes; default 8
         readable_crash_files (bool; optional): should nipype crash files be saved as txt? This makes them easily readable, but sometimes interferes with nipype's ability to use cached results of successfully run nodes (i.e. picking up where it left off after bugs are fixed); default False
 
     Examples:
@@ -610,4 +610,8 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         workflow.write_graph(dotfilename=os.path.join(output_dir,'pipeline'),format='png')
 
     print(f"Creating workflow for subject: {subject_id}")
+    if ants_threads == 8:
+        print(f"ANTs will utilize the default of {ants_threads} threads for parallel processing.")
+    else:
+        print(f"ANTs will utilize the user-requested {ants_threads} threads for parallel processing.")
     return workflow
