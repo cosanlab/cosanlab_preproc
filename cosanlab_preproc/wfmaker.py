@@ -175,14 +175,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
             totalReadoutTimes.append(layout.get_metadata(fmap)['TotalReadoutTime'])
 
             # Grab measurements (for some reason pyBIDS doesn't grab dcm_meta... fields from side-car json file and json.load, doesn't either; so instead just read the header using nibabel to determine number of scans)
-            dat = nib.load(fmap)
-            dim = dat.header['dim'][4]
-            if dim == 4:
-                measurements.append(dim)
-            elif dim == 3:
-                measurements.append(1)
-            else:
-                raise ValueError("Field map doesn't seem to be 3d or 4d file!")
+            measurements.append(nib.load(fmap).header['dim'][4])
 
             # Get phase encoding direction
             fmap_pe = layout.get_metadata(fmap)["PhaseEncodingDirection"]
