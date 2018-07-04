@@ -290,7 +290,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     coregistration.inputs.radius_or_number_of_bins = [32]
     coregistration.inputs.sampling_strategy = ['Regular']
     coregistration.inputs.sampling_percentage = [0.25]
-    coregistration.inputs.convergence_threshold = [1.e-8]
+    coregistration.inputs.convergence_threshold = [1e-08]
     coregistration.inputs.convergence_window_size = [10]
     coregistration.inputs.smoothing_sigmas = [[3,2,1,0]]
     coregistration.inputs.sigma_units = ['mm']
@@ -334,7 +334,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     normalization = Node(Registration(),name='normalization')
     normalization.inputs.float = False
     normalization.inputs.collapse_output_transforms=True
-    normalization.inputs.convergence_threshold=[[1e-06],[1e-06],[1e-07]]
+    normalization.inputs.convergence_threshold=[1e-06,1e-06,1e-07]
     normalization.inputs.convergence_window_size=[10]
     normalization.inputs.dimension = 3
     normalization.inputs.fixed_image = MNItemplate
