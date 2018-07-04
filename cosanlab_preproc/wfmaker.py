@@ -421,7 +421,7 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         lp_filter.inputs.sampling_rate = tr_length
         lp_filter.inputs.high_pass_cutoff = 0
         if isinstance(apply_filter,list):
-            lp_filter.iterables = ("low_pass_cutoff",filter)
+            lp_filter.iterables = ("low_pass_cutoff",apply_filter)
         elif isinstance(apply_filter, int) or isinstance(apply_filter, float):
             lp_filter.inputs.low_pass_cutoff = apply_filter
         else:
