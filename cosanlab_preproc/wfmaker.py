@@ -8,29 +8,14 @@ Handy function to build dynamic workflows using BIDS formatted data files.
 
 """
 
-import os
+# These imports are not nipype-dependent so we can import them early; see config notes below
 import matplotlib
 matplotlib.use('Agg')
 import nibabel as nib
-from nipype.interfaces.io import DataSink
-from nipype.interfaces.utility import Merge, IdentityInterface
-from nipype.pipeline.engine import Node, Workflow
-from .interfaces import	Plot_Coregistration_Montage,Plot_Quality_Control,Plot_Realignment_Parameters,Create_Covariates,Down_Sample_Precision,Create_Encoding_File, Filter_In_Mask
+import os
 from .utils import get_resource_path
 import six
-
 from bids.grabbids import BIDSLayout
-from nipype.interfaces.nipy.preprocess import ComputeMask
-from nipype.algorithms.rapidart import ArtifactDetect
-from nipype.interfaces.ants.segmentation import BrainExtraction, N4BiasFieldCorrection
-from nipype.interfaces.ants import Registration, ApplyTransforms
-from nipype.interfaces.fsl import MCFLIRT, TOPUP, ApplyTOPUP
-
-from nipype.interfaces.fsl.maths import MeanImage
-from nipype.interfaces.fsl import Merge as MERGE
-from nipype.interfaces.fsl.utils import Smooth
-from nipype.interfaces.nipy.preprocess import Trim
-
 
 def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_dist_corr=False,apply_smooth=False,apply_filter=False,mni_template='2mm',apply_n4 =True,ants_threads=8,readable_crash_files=False):
 
@@ -119,6 +104,34 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
     bet_ants_template = os.path.join(get_resource_path(),'OASIS_template.nii.gz')
     bet_ants_prob_mask = os.path.join(get_resource_path(),'OASIS_BrainCerebellumProbabilityMask.nii.gz')
     bet_ants_registration_mask = os.path.join(get_resource_path(),'OASIS_BrainCerebellumRegistrationMask.nii.gz')
+
+    #################################
+    ### NIPYPE IMPORTS AND CONFIG ###
+    #################################
+    # Update nipype global config because workflow.config[] = ..., doesn't seem to work
+    # Can't store nipype config/rc file in container anyway so set them globaly before importing and setting up workflow as suggested here: http://nipype.readthedocs.io/en/latest/users/config_file.html#config-file
+    from nipype import config
+    if readable_crash_files:
+        cfg = dict(execution={'crashfile_format':'txt'})
+        config.update_config(cfg)
+    config.update_config({'logging':{'log_directory':log_dir,'log_to_file':True}})
+    from nipype import logging
+    logging.update_logging(config)
+
+    # Now import everything else
+    from nipype.interfaces.io import DataSink
+    from nipype.interfaces.utility import Merge, IdentityInterface
+    from nipype.pipeline.engine import Node, Workflow
+    from nipype.interfaces.nipy.preprocess import ComputeMask
+    from nipype.algorithms.rapidart import ArtifactDetect
+    from nipype.interfaces.ants.segmentation import BrainExtraction, N4BiasFieldCorrection
+    from nipype.interfaces.ants import Registration, ApplyTransforms
+    from nipype.interfaces.fsl import MCFLIRT, TOPUP, ApplyTOPUP
+    from nipype.interfaces.fsl.maths import MeanImage
+    from nipype.interfaces.fsl import Merge as MERGE
+    from nipype.interfaces.fsl.utils import Smooth
+    from nipype.interfaces.nipy.preprocess import Trim
+    from .interfaces import	Plot_Coregistration_Montage,Plot_Quality_Control,Plot_Realignment_Parameters,Create_Covariates,Down_Sample_Precision,Create_Encoding_File, Filter_In_Mask
 
     ##################
     ### INPUT NODE ###
@@ -446,17 +459,11 @@ def wfmaker(project_dir,raw_dir,subject_id,task_name='',apply_trim=False,apply_d
         to_replace.append(('..'.join(prefix + [elem]), bold_name))
     datasink.inputs.substitutions = to_replace
 
-    ##################
-    ### WIRE IT UP ###
-    ##################
-
-    # Init workflow
+    #####################
+    ### INIT WORKFLOW ###
+    #####################
     workflow = Workflow(name=subId)
     workflow.base_dir = output_interm_dir
-    workflow.config['logging'] = {'log_directory': log_dir, 'log_to_file': True}
-
-    if readable_crash_files:
-        workflow.config['execution'] = {'crashfile_format': 'txt'}
 
     ############################
     ######### PART (1a) #########
