@@ -64,6 +64,12 @@ The common workflow performs the following routines. Optional routines are itali
 6) QA figures for normalization check  
 7) QA plots of motion
 
+### Notes
+
+- Assumes TR is the same for all functional runs
+- Fine-tuning node settings not provided as input arguments, requires manually editing specific nodes
+- Multi-session data will generate a _list_ of workflows that need to be run manually in sequence by the user
+
 ### Example workflows  
 
 The simplest workflow performs only realignment and non-linear normalization to the 2mm MNI template. We run the workflow serially, one step at a time.
