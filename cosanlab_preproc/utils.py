@@ -72,7 +72,7 @@ def file_getter(layout, subject_id, dist_corr=False, task_name='', session=None)
         if task_name:
             funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', task=task_name, session=session, extensions='.nii.gz')]
         else:
-            funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', task=task_name, extensions='.nii.gz')]
+            funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', extensions='.nii.gz')]
         if dist_corr:
             fmaps = [f.filename for f in layout.get(subject=subject_id, modality='fmap', session=session, extensions='.nii.gz')]
         else:
@@ -82,7 +82,7 @@ def file_getter(layout, subject_id, dist_corr=False, task_name='', session=None)
         if task_name:
             funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', task=task_name, extensions='.nii.gz')]
         else:
-            funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', task=task_name, extensions='.nii.gz')]
+            funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', extensions='.nii.gz')]
         if dist_corr:
             fmaps = [f.filename for f in layout.get(subject=subject_id, modality='fmap', extensions='.nii.gz')]
         else:
