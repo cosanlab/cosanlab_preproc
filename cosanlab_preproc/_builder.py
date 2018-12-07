@@ -33,6 +33,13 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     ##################
     ### PATH SETUP ###
     ##################
+    if session is not None:
+        session = int(session)
+        if session < 10:
+            session = '0' + str(session)
+        else:
+            session = str(session)
+
     # Set MNI template
     MNItemplate = os.path.join(get_resource_path(), 'MNI152_T1_' + mni_template + '_brain.nii.gz')
     MNImask = os.path.join(get_resource_path(), 'MNI152_T1_' + mni_template + '_brain_mask.nii.gz')
@@ -383,7 +390,7 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     ### INIT WORKFLOW ###
     #####################
     if session:
-        workflow = Workflow(name='ses-'+session)
+        workflow = Workflow(name='ses_'+session)
         workflow.base_dir = os.path.join(output_dir, subId)
     else:
         workflow = Workflow(name=subId)
@@ -542,8 +549,6 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
         workflow.write_graph(dotfilename=os.path.join(output_dir, 'pipeline'), format='png')
 
     print(f"Creating workflow for subject: {subject_id}")
-    if ants_threads == 8:
-        print(f"ANTs will utilize the default of {ants_threads} threads for parallel processing.")
-    else:
+    if ants_threads != 8:
         print(f"ANTs will utilize the user-requested {ants_threads} threads for parallel processing.")
     return workflow

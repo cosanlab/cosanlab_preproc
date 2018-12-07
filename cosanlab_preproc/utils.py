@@ -67,7 +67,7 @@ def get_vox_dims(volume):
 def file_getter(layout, subject_id, dist_corr=False, task_name='', session=None):
     """Helper function to search BIDS layout for session or non-session data. Returns full paths of anatomical, functional, and field map data"""
 
-    if session:
+    if session is not None:
         anat = layout.get(subject=subject_id, type='T1w', extensions='.nii.gz', session=session)[0].filename
         if task_name:
             funcs = [f.filename for f in layout.get(subject=subject_id, type='bold', task=task_name, session=session, extensions='.nii.gz')]
