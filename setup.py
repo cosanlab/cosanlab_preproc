@@ -1,6 +1,9 @@
 from cosanlab_preproc.version import __version__
 from setuptools import setup, find_packages
 
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
+
 extra_setuptools_args = dict(
     tests_require=['pytest']
 )
@@ -12,7 +15,7 @@ setup(
     maintainer='Luke Chang',
     maintainer_email='luke.j.chang@dartmouth.edu',
     url='http://github.com/cosanlab/cosanlab_preproc',
-    install_requires=['nibabel','nipype','numpy', 'pandas', 'nltools','matplotlib', 'seaborn','nipype','pybids'],
+    install_requires=requirements,
     packages=find_packages(exclude=['cosanlab_preproc/tests']),
     package_data={'cosanlab_preproc':['resources/*']},
     license='MIT',
