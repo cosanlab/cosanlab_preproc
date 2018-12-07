@@ -59,7 +59,8 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     if readable_crash_files:
         cfg = dict(execution={'crashfile_format': 'txt'})
         config.update_config(cfg)
-    config.update_config({'logging': {'log_directory': log_dir, 'log_to_file': True}})
+    config.update_config({'logging': {'log_directory': log_dir, 'log_to_file': True},
+                          'execution': {'crashdump_dir': log_dir}})
     from nipype import logging
     logging.update_logging(config)
 
@@ -377,7 +378,10 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
 
     # Remove substitutions
     data_dir_parts = data_dir.split('/')[1:]
-    prefix = ['_scan_'] + data_dir_parts + [subject_id] + ['func']
+    if session:
+        prefix = ['_scan_'] + data_dir_parts + [subject_id] + ['ses-' + session] + ['func']
+    else:
+        prefix = ['_scan_'] + data_dir_parts + [subject_id] + ['func']
     func_scan_names = [os.path.split(elem)[-1] for elem in funcs]
     to_replace = []
     for elem in func_scan_names:
@@ -391,7 +395,9 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     #####################
     if session:
         workflow = Workflow(name='ses_'+session)
-        workflow.base_dir = os.path.join(output_dir, subId)
+        if not os.path.exists(os.path.join(output_interm_dir, subId)):
+            os.makedirs(os.path.join(output_interm_dir, subId))
+        workflow.base_dir = os.path.join(output_interm_dir, subId)
     else:
         workflow = Workflow(name=subId)
         workflow.base_dir = output_interm_dir
@@ -532,6 +538,7 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     # covs -> save
     # t1 (in mni) -> save
     # t1 segmented masks (in mni) -> save
+    # realignment parms -> save
     ##########################################
 
     workflow.connect([
