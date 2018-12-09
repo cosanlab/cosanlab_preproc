@@ -268,10 +268,11 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     # how many samples should optimizer average to compute threshold?
     # sampling_strategy
     # what strategy should ANTs use to initialize the transform. Regular here refers to approximately random sampling around the center of the image mass
+
     normalization = Node(Registration(), name='normalization')
     normalization.inputs.float = False
     normalization.inputs.collapse_output_transforms = True
-    normalization.inputs.convergence_threshold = [1e-06, 1e-06, 1e-07]
+    normalization.inputs.convergence_threshold = [1e-06]
     normalization.inputs.convergence_window_size = [10]
     normalization.inputs.dimension = 3
     normalization.inputs.fixed_image = MNItemplate
@@ -287,20 +288,51 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     normalization.inputs.output_warped_image = True
     normalization.inputs.radius_or_number_of_bins = [32, 32, 4]
     normalization.inputs.sampling_percentage = [0.25, 0.25, 1]
-    normalization.inputs.sampling_strategy = ['Regular',
-                                              'Regular',
-                                              'None']
-    normalization.inputs.shrink_factors = [[4, 3, 2, 1]]*3
+    normalization.inputs.sampling_strategy = ['Regular', 'Regular', 'None']
+    normalization.inputs.shrink_factors = [[8, 4, 2, 1]]*3
     normalization.inputs.sigma_units = ['vox']*3
-    normalization.inputs.smoothing_sigmas = [[2, 1], [2, 1], [3, 2, 1, 0]]
+    normalization.inputs.smoothing_sigmas = [[3, 2, 1, 0]]*3
     normalization.inputs.transforms = ['Rigid', 'Affine', 'SyN']
-    normalization.inputs.transform_parameters = [(0.1,),
-                                                 (0.1,),
-                                                 (0.1, 3.0, 0.0)]
+    normalization.inputs.transform_parameters = [(0.1,), (0.1,), (0.1, 3.0, 0.0)]
     normalization.inputs.use_histogram_matching = True
     normalization.inputs.winsorize_lower_quantile = 0.005
     normalization.inputs.winsorize_upper_quantile = 0.995
     normalization.inputs.write_composite_transform = True
+
+    # NEW SETTINGS (need to be adjusted; specifically shink_factors and smoothing_sigmas need to be the same length)
+    # normalization = Node(Registration(), name='normalization')
+    # normalization.inputs.float = False
+    # normalization.inputs.collapse_output_transforms = True
+    # normalization.inputs.convergence_threshold = [1e-06, 1e-06, 1e-07]
+    # normalization.inputs.convergence_window_size = [10]
+    # normalization.inputs.dimension = 3
+    # normalization.inputs.fixed_image = MNItemplate
+    # normalization.inputs.initial_moving_transform_com = True
+    # normalization.inputs.metric = ['MI', 'MI', 'CC']
+    # normalization.inputs.metric_weight = [1.0]*3
+    # normalization.inputs.number_of_iterations = [[1000, 500, 250, 100],
+    #                                              [1000, 500, 250, 100],
+    #                                              [100, 70, 50, 20]]
+    # normalization.inputs.num_threads = ants_threads
+    # normalization.inputs.output_transform_prefix = 'anat2template'
+    # normalization.inputs.output_inverse_warped_image = True
+    # normalization.inputs.output_warped_image = True
+    # normalization.inputs.radius_or_number_of_bins = [32, 32, 4]
+    # normalization.inputs.sampling_percentage = [0.25, 0.25, 1]
+    # normalization.inputs.sampling_strategy = ['Regular',
+    #                                           'Regular',
+    #                                           'None']
+    # normalization.inputs.shrink_factors = [[4, 3, 2, 1]]*3
+    # normalization.inputs.sigma_units = ['vox']*3
+    # normalization.inputs.smoothing_sigmas = [[2, 1], [2, 1], [3, 2, 1, 0]]
+    # normalization.inputs.transforms = ['Rigid', 'Affine', 'SyN']
+    # normalization.inputs.transform_parameters = [(0.1,),
+    #                                              (0.1,),
+    #                                              (0.1, 3.0, 0.0)]
+    # normalization.inputs.use_histogram_matching = True
+    # normalization.inputs.winsorize_lower_quantile = 0.005
+    # normalization.inputs.winsorize_upper_quantile = 0.995
+    # normalization.inputs.write_composite_transform = True
 
     ###################################
     ### APPLY TRANSFORMS AND SMOOTH ###
