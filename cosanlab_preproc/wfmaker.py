@@ -14,7 +14,7 @@ Handy function to build dynamic workflows using BIDS formatted data files.
 """
 
 
-def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False):
+def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False, write_logs=True):
     """
     This function returns a "standard" workflow based on requested settings. Assumes data is in the following directory structure in BIDS format:
 
@@ -46,6 +46,7 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
         apply_n4 (bool; optional): perform N4 Bias Field correction on the anatomical image; default true
         ants_threads (int; optional): number of threads ANTs should use for its processes; default 8
         readable_crash_files (bool; optional): should nipype crash files be saved as txt? This makes them easily readable, but sometimes interferes with nipype's ability to use cached results of successfully run nodes (i.e. picking up where it left off after bugs are fixed); default False
+        write_logs (bool; optional): should nipype write log files? convenient to see all steps in retrospect (can also inspect your cluster's log files) but sometimes will randomly fail due to portalocker issues on NFS systems (e.g https://bit.ly/2L8Lm6N)
 
     Examples:
 
@@ -107,11 +108,11 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
         workflow = []
         for s in sessions:
             anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name, session=s)
-            w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
+            w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
             workflow.append(w)
 
     else:
         anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name)
-        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
+        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
 
     return workflow

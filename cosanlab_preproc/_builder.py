@@ -14,7 +14,7 @@ Base function to build dynamic workflows using BIDS formatted data files.
 """
 
 
-def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_dir, output_interm_dir, layout, anat=None, funcs=None, fmaps=None, task_name='', session=None, apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False):
+def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_dir, output_interm_dir, layout, anat=None, funcs=None, fmaps=None, task_name='', session=None, apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False, write_logs=True):
     """
     Core function that returns a workflow. See wfmaker for more details.
 
@@ -63,7 +63,7 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     if readable_crash_files:
         cfg = dict(execution={'crashfile_format': 'txt'})
         config.update_config(cfg)
-    config.update_config({'logging': {'log_directory': log_dir, 'log_to_file': True},
+    config.update_config({'logging': {'log_directory': log_dir, 'log_to_file': write_logs},
                           'execution': {'crashdump_dir': log_dir}})
     from nipype import logging
     logging.update_logging(config)
