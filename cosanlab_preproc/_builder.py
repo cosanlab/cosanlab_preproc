@@ -14,7 +14,7 @@ Base function to build dynamic workflows using BIDS formatted data files.
 """
 
 
-def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_dir, output_interm_dir, log_dir, layout, anat=None, funcs=None, fmaps=None, task_name='', session=None, apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False):
+def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_dir, output_interm_dir, layout, anat=None, funcs=None, fmaps=None, task_name='', session=None, apply_trim=False, apply_dist_corr=False, apply_smooth=False, apply_filter=False, mni_template='2mm', apply_n4=True, ants_threads=8, readable_crash_files=False):
     """
     Core function that returns a workflow. See wfmaker for more details.
 
@@ -26,7 +26,6 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
         output_dir: upper level output dir (others will be nested within this)
         output_final_dir: final preprocessed sub-dir name
         output_interm_dir: intermediate preprcess sub-dir name
-        log_dir: directory for nipype log files
         layout: BIDS layout instance
     """
 
@@ -55,6 +54,11 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     #################################
     # Update nipype global config because workflow.config[] = ..., doesn't seem to work
     # Can't store nipype config/rc file in container anyway so set them globaly before importing and setting up workflow as suggested here: http://nipype.readthedocs.io/en/latest/users/config_file.html#config-file
+
+    # Create subject's intermediate directory before configuring nipype and the workflow because that's where we'll save log files in addition to intermediate files
+    if not os.path.exists(os.path.join(output_interm_dir, subId, 'logs')):
+        os.makedirs(os.path.join(output_interm_dir, subId, 'logs'))
+    log_dir = os.path.join(output_interm_dir, subId, 'logs')
     from nipype import config
     if readable_crash_files:
         cfg = dict(execution={'crashfile_format': 'txt'})
@@ -425,10 +429,11 @@ def builder(subject_id, subId, project_dir, data_dir, output_dir, output_final_d
     #####################
     ### INIT WORKFLOW ###
     #####################
+    # If we have sessions provide the full path to the subject's intermediate directory
+    # and only rely on workflow init to create the session container *within* that directory
+    # Otherwise just point to the intermediate directory and let the workflow init create the subject container within the intermediate directory
     if session:
         workflow = Workflow(name='ses_'+session)
-        if not os.path.exists(os.path.join(output_interm_dir, subId)):
-            os.makedirs(os.path.join(output_interm_dir, subId))
         workflow.base_dir = os.path.join(output_interm_dir, subId)
     else:
         workflow = Workflow(name=subId)

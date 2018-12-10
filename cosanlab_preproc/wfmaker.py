@@ -84,14 +84,11 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
     output_dir = os.path.join(project_dir, 'preprocessed')
     output_final_dir = os.path.join(output_dir, 'final')
     output_interm_dir = os.path.join(output_dir, 'intermediate')
-    log_dir = os.path.join(project_dir, 'logs', 'nipype')
 
     if not os.path.exists(output_final_dir):
         os.makedirs(output_final_dir)
     if not os.path.exists(output_interm_dir):
         os.makedirs(output_interm_dir)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
 
     layout = BIDSLayout(data_dir)
     # Dartmouth subjects are named with the sub- prefix, handle whether we receive an integer identifier for indexing or the full subject id with prefixg
@@ -110,11 +107,11 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
         workflow = []
         for s in sessions:
             anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name, session=s)
-            w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, log_dir=log_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
+            w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
             workflow.append(w)
 
     else:
         anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name)
-        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, log_dir=log_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
+        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files)
 
     return workflow
