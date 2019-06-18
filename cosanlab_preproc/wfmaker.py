@@ -104,15 +104,14 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
     # For multi-session datasets return a list of workflows consisting of pipelines specific to all data within that session
     # Otherwise return a single workflow
     sessions = layout.get_sessions()
-    if len(sessions) > 0:
+    if len(sessions) <= 1:
+        anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name)
+        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
+    else:
         workflow = []
         for s in sessions:
             anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name, session=s)
             w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
             workflow.append(w)
-
-    else:
-        anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name)
-        workflow = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=None, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
 
     return workflow
