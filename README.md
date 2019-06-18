@@ -3,6 +3,13 @@
 Preprocessing tools used in the [Cosanlab](http://cosanlab.com/) built using [nipype](http://nipype.readthedocs.io/en/latest/).  
 Many of these tools can be used in conjunction with our [neuroimaging analysis toolbox](https://github.com/ljchang/nltools), and easily run from our [Docker based analysis container](https://github.com/cosanlab/cosanToolsDocker).  
 
+## Installation  
+
+As of 06/18/19 we're still using an older version of [pybids](https://github.com/bids-standard/pybids) to gather data files. This *does not* affect estimation in anyway. Make sure you install by doing:  
+1. `pip uninstall pybids` (remove any existing pybids installation) 
+2. `pip install pybids==0.6.5` (install the version we need)
+3. `pip install git+https://github.com/cosanlab/cosanlab_preproc` (install cosanlab_preproc)
+
 ## Usage   
 
 While this package provides interfaces for use within custom nipype workflows, and prebuilt workflows for reproducing specific analysis pipelines, we also have a common pipeline used across numerous studies. It's also easily adaptable to specific use cases. The simplest way to use it is via the **workflow maker** in `cosanlab_preproc.wfmaker` following the examples at the bottom of this page.
