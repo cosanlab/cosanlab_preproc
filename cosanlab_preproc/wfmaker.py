@@ -110,8 +110,13 @@ def wfmaker(project_dir, raw_dir, subject_id, task_name='', apply_trim=False, ap
     else:
         workflow = []
         for s in sessions:
-            anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name, session=s)
-            w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
-            workflow.append(w)
+            try:
+                # Generate a workflow if this subject and session are found
+                anat, funcs, fmaps = file_getter(layout, subId, apply_dist_corr, task_name, session=s)
+                w = builder(subject_id=subject_id, subId=subId, project_dir=project_dir, data_dir=data_dir, output_dir=output_dir, output_final_dir=output_final_dir, output_interm_dir=output_interm_dir, layout=layout, anat=anat, funcs=funcs, fmaps=fmaps, task_name=task_name, session=s, apply_trim=apply_trim, apply_dist_corr=apply_dist_corr, apply_smooth=apply_smooth, apply_filter=apply_filter, mni_template=mni_template, apply_n4=apply_n4, ants_threads=ants_threads, readable_crash_files=readable_crash_files, write_logs=write_logs)
+                workflow.append(w)
+            except IndexError:
+                # IndexError because file_getter indexes the list returned from layout.get()
+                print(f"Subject: {subId} has no Session: {s}")
 
     return workflow
